@@ -11,15 +11,21 @@ MAP_WIDTH, MAP_HEIGHT = 600, 600
 map_img = np.zeros((MAP_HEIGHT, MAP_WIDTH, 3), dtype=np.uint8)
 
 # --- CALIBRATION VARIABLES ---
-# We need 4 points from the camera view that form a rectangle on the ground
+# Adjusted to cover the full width of the bottom half of the screen
 # Order: Top-Left, Top-Right, Bottom-Right, Bottom-Left
-# You would ideally set these by clicking on the image. 
-# Here are defaults for a standard webcam looking at a floor.
 src_points = np.float32([
-    [100, 200],  # Point A (Camera coords)
-    [540, 200],  # Point B
-    [640, 480],  # Point C
-    [0, 480]     # Point D
+    [489, 692],  # Top-Left
+    [1101, 657],  # Top-Right
+    [1849, 1071],  # Bottom-Right
+    [245, 1073]   # Bottom-Left
+])
+
+# These map to the 4 corners of our top-down map
+dst_points = np.float32([
+    [0, 0],                  # Map Top-Left
+    [MAP_WIDTH, 0],          # Map Top-Right
+    [MAP_WIDTH, MAP_HEIGHT], # Map Bottom-Right
+    [0, MAP_HEIGHT]          # Map Bottom-Left
 ])
 
 # These map to the 4 corners of our top-down map
@@ -58,6 +64,7 @@ def transform_point(point, matrix):
 
 # --- MAIN LOOP ---
 cap = cv2.VideoCapture(0) # 0 for default webcam
+# print(f"Camera Resolution: {cap.get(3)} x {cap.get(4)}")
 
 while True:
     ret, frame = cap.read()
