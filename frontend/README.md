@@ -1,16 +1,32 @@
-# React + Vite
+# Aegis Flow – React Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React (Vite + Tailwind) UI for the Aegis Flow patient location dashboard. Talks to the FastAPI backend for patients, tracked people, enrollment, and video feed.
 
-Currently, two official plugins are available:
+## Run
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+npm install
+npm run dev
+```
 
-## React Compiler
+Open http://localhost:5173. Ensure the backend is running:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+uvicorn aegis_flow.api:app --reload --port 8000
+```
 
-## Expanding the ESLint configuration
+(from the repo root, with `aegis_flow` dependencies installed)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Structure
+
+- `src/App.jsx` – main layout, API vs mock data toggle
+- `src/components/` – StatsBar, FloorMap, PatientList, CriticalAlert, Sidebar, VideoFeed
+- `src/hooks/useAegisData.js` – polling and API calls
+- `src/api/client.js` – fetch wrappers for `http://localhost:8000/api`
+- `src/data/mockData.js` – fallback when backend is offline
+
+## Scripts
+
+- `npm run dev` – dev server (Vite)
+- `npm run build` – production build
+- `npm run preview` – preview production build

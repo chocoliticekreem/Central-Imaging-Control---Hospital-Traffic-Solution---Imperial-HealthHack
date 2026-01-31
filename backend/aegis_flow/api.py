@@ -24,6 +24,10 @@ from aegis_flow.core.state_manager import StateManager
 from aegis_flow.vision.detector import PersonDetector
 from aegis_flow.vision.tracker import CentroidTracker
 from aegis_flow.vision.classifier import UniformClassifier
+try:
+    from aegis_flow import config
+except ImportError:
+    import config
 
 app = FastAPI(title="Aegis Flow API", version="1.0.0")
 
@@ -253,6 +257,24 @@ def get_stats():
     return StatsResponse(**stats)
 
 
+@app.get("/api/floor-plan")
+def get_floor_plan():
+    """Get floor plan image (base64) and zone definitions for map display."""
+    zones = [
+        {
+            "camera_id": z.camera_id,
+            "camera_name": z.camera_name,
+            "map_x": z.map_x,
+            "map_y": z.map_y,
+            "map_width": z.map_width,
+            "map_height": z.map_height,
+        }
+        for z in sm.floor_plan.get_all_zones()
+    ]
+    image_base64 = sm.floor_plan.get_image_base64()
+    return {"image_base64": image_base64, "zones": zones, "width": 800, "height": 600}
+
+
 # ============================================================================
 # Demo Endpoints
 # ============================================================================
@@ -307,11 +329,44 @@ def init_cv_components():
             print("CV components ready!")
 
 
+def _open_camera():
+    """Open default or fallback camera. Returns (cap, error_message)."""
+    idx = getattr(config, "CAMERA_INDEX", 0)
+    cap = cv2.VideoCapture(idx)
+    if not cap.isOpened() and idx == 0:
+        cap.release()
+        cap = cv2.VideoCapture(1)
+    if not cap.isOpened():
+        cap.release()
+        return None, (
+            "Camera not available. Grant Camera permission to Terminal/Cursor in "
+            "System Settings → Privacy & Security → Camera. Close other apps using the webcam."
+        )
+    return cap, None
+
+
+def _error_frame_jpeg(message: str) -> bytes:
+    """One JPEG frame with error text (for stream)."""
+    import numpy as np
+    img = np.zeros((240, 640, 3), dtype=np.uint8)
+    img[:] = (60, 60, 80)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    for i, line in enumerate(message.split(". ")[:3]):
+        cv2.putText(img, line[:50], (20, 80 + i * 50), font, 0.6, (255, 255, 255), 2)
+    _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    return buf.tobytes()
+
+
 def generate_frames():
     """Generator that yields MJPEG frames with CV processing."""
     init_cv_components()
 
-    cap = cv2.VideoCapture(0)
+    cap, err = _open_camera()
+    if cap is None:
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + _error_frame_jpeg(err) + b'\r\n')
+        return
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
@@ -319,56 +374,69 @@ def generate_frames():
     tracker = cv_components["tracker"]
     classifier = cv_components["classifier"]
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            time.sleep(0.1)
-            continue
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                time.sleep(0.1)
+                continue
 
-        # Run CV pipeline
-        detections = detector.detect(frame)
-        tracks = tracker.update(detections)
+            # Run CV pipeline
+            detections = detector.detect(frame)
+            tracks = tracker.update(detections)
 
-        # Process each tracked person and update state manager
-        for track_id, tracked in tracks.items():
-            person_type = classifier.classify(frame, tracked.bbox)
+            # Process each tracked person and update state manager
+            for track_id, tracked in tracks.items():
+                person_type = classifier.classify(frame, tracked.bbox)
 
-            # Update state manager
-            sm.update_tracked(
-                track_id=track_id,
-                camera_id="cam_webcam",
-                position=tracked.centroid,
-                person_type=person_type
-            )
+                # Update state manager
+                sm.update_tracked(
+                    track_id=track_id,
+                    camera_id="cam_webcam",
+                    position=tracked.centroid,
+                    person_type=person_type
+                )
 
-            # Draw bounding box
-            x1, y1, x2, y2 = tracked.bbox
+                # Draw bounding box
+                x1, y1, x2, y2 = tracked.bbox
 
-            # Color based on type
-            if person_type == "staff":
-                color = (255, 165, 0)  # Orange
-            else:
-                color = (0, 255, 0)  # Green
+                # Color based on type
+                if person_type == "staff":
+                    color = (255, 165, 0)  # Orange
+                else:
+                    color = (0, 255, 0)  # Green
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
-            # Label
-            label = f"{track_id} [{person_type}]"
-            cv2.putText(frame, label, (x1, y1 - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                # Label
+                label = f"{track_id} [{person_type}]"
+                cv2.putText(frame, label, (x1, y1 - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-            # Center dot
-            cx, cy = tracked.centroid
-            cv2.circle(frame, (cx, cy), 5, color, -1)
+                # Center dot
+                cx, cy = tracked.centroid
+                cv2.circle(frame, (cx, cy), 5, color, -1)
 
-        # Encode frame as JPEG
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        frame_bytes = buffer.tobytes()
+            # Encode frame as JPEG
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            frame_bytes = buffer.tobytes()
 
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-        time.sleep(0.033)  # ~30 FPS
+            time.sleep(0.033)  # ~30 FPS
+    finally:
+        cap.release()
+
+
+@app.get("/api/video/status")
+def video_status():
+    """Check if the camera can be opened (for UI feedback)."""
+    cap, err = _open_camera()
+    if cap is not None:
+        cap.release()
+        return {"available": True, "message": "Camera OK"}
+    return {"available": False, "message": err}
 
 
 @app.get("/api/video")

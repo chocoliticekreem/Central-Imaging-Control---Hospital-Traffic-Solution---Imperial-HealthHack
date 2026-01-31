@@ -109,3 +109,11 @@ export async function demoUpdateVitals(patientId, direction) {
 export async function healthCheck() {
   return fetchAPI("/health");
 }
+
+export async function getVideoStatus() {
+  return fetchAPI("/video/status");
+}
+
+export async function getFloorPlan() {
+  return fetchAPI("/floor-plan");
+}

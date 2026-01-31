@@ -79,7 +79,7 @@ def main_with_cv():
 
     TODO (implement this when CV pipeline is ready):
     1. Create Queue
-    2. Start CV processor process
+    2. Start CV processor in background
     3. Start dashboard with queue reference
     4. Handle cleanup on exit
     """

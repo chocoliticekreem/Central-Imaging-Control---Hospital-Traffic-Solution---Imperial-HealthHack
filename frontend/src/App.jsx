@@ -25,6 +25,7 @@ function App() {
     patients: apiPatients,
     trackedPeople: apiTracked,
     stats: apiStats,
+    floorPlan,
     loading,
     error,
     isConnected,
@@ -33,6 +34,7 @@ function App() {
     addPerson,
     setupDemo,
     clearAll,
+    refresh,
   } = useAegisData(autoRefresh ? 2000 : null);
 
   const patients = useMockData || !isConnected ? mockPatients : apiPatients;
@@ -110,6 +112,18 @@ function App() {
           </div>
         </div>
 
+        {/* Backend not running */}
+        {!loading && !isConnected && !useMockData && (
+          <div className="mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm">
+            <strong>Backend not running.</strong> Start it in a terminal:{" "}
+            <code className="bg-slate-800 px-2 py-1 rounded">uvicorn aegis_flow.api:app --reload --port 8000</code>
+            {" "}(from project root). Then{" "}
+            <button type="button" className="underline hover:no-underline" onClick={() => refresh()}>
+              retry connection
+            </button>.
+          </div>
+        )}
+
         {/* Stats Bar */}
         <StatsBar stats={stats} />
 
@@ -125,6 +139,7 @@ function App() {
           <FloorMap
             trackedPeople={trackedPeople}
             patients={patients}
+            floorPlan={floorPlan}
             onSelectPerson={setSelectedPerson}
           />
         </div>

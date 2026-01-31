@@ -1,8 +1,28 @@
 import { mockZones } from "../data/mockData";
 
-export default function FloorMap({ trackedPeople, patients, onSelectPerson }) {
-  const width = 700;
-  const height = 500;
+// Zone colors for backend zone names
+const ZONE_COLORS = {
+  "Corridor A": "#6b7280",
+  "Waiting Room": "#8b5cf6",
+  "Triage": "#3b82f6",
+  "Treatment": "#10b981",
+};
+
+export default function FloorMap({ trackedPeople, patients, floorPlan, onSelectPerson }) {
+  // Use backend floor plan when connected (800x600, same as Streamlit/code)
+  const width = floorPlan?.width ?? 700;
+  const height = floorPlan?.height ?? 500;
+  const zones = floorPlan?.zones?.length
+    ? floorPlan.zones.map((z) => ({
+        id: z.camera_id,
+        name: z.camera_name,
+        x: z.map_x,
+        y: z.map_y,
+        width: z.map_width,
+        height: z.map_height,
+        color: ZONE_COLORS[z.camera_name] ?? "#64748b",
+      }))
+    : mockZones.map((z, i) => ({ ...z, id: z.name + i }));
 
   const getPatientInfo = (tracked) => {
     if (!tracked.patient_id) return null;
@@ -36,18 +56,30 @@ export default function FloorMap({ trackedPeople, patients, onSelectPerson }) {
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="w-full rounded-lg bg-slate-900/50"
+          preserveAspectRatio="xMidYMid meet"
         >
-          {/* Grid pattern */}
           <defs>
             <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#334155" strokeWidth="0.5" />
             </pattern>
           </defs>
-          <rect width="100%" height="100%" fill="url(#grid)" />
+          {/* Background: floor plan image from API or grid */}
+          {floorPlan?.image_base64 ? (
+            <image
+              href={`data:image/png;base64,${floorPlan.image_base64}`}
+              x={0}
+              y={0}
+              width={width}
+              height={height}
+              preserveAspectRatio="xMidYMid meet"
+            />
+          ) : (
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          )}
 
           {/* Zones */}
-          {mockZones.map((zone) => (
-            <g key={zone.name}>
+          {zones.map((zone) => (
+            <g key={zone.id ?? zone.name}>
               <rect
                 x={zone.x}
                 y={zone.y}

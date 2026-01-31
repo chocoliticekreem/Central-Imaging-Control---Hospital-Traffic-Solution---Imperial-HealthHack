@@ -5,7 +5,9 @@
 import { useState, useEffect, useCallback } from "react";
 import * as api from "../api/client";
 
-export function useAegisData(pollInterval = 2000) {
+const POLL_DEFAULT = 2000;
+
+export function useAegisData(pollInterval = POLL_DEFAULT) {
   const [patients, setPatients] = useState([]);
   const [trackedPeople, setTrackedPeople] = useState([]);
   const [stats, setStats] = useState({
@@ -16,46 +18,51 @@ export function useAegisData(pollInterval = 2000) {
     critical_located: 0,
     urgent_located: 0,
   });
+  const [floorPlan, setFloorPlan] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 
-  // Fetch all data
+  // Fetch all data (patients, tracked, stats, floor plan)
   const fetchData = useCallback(async () => {
     try {
-      const [patientsData, trackedData, statsData] = await Promise.all([
+      const [patientsData, trackedData, statsData, floorPlanData] = await Promise.all([
         api.getPatients(),
         api.getTracked(),
         api.getStats(),
+        api.getFloorPlan().catch(() => null),
       ]);
 
       // Transform tracked data to match frontend format
       const transformedTracked = trackedData.map((t) => ({
         track_id: t.track_id,
         patient_id: t.patient_id,
-        position: t.map_position, // Use map_position for display
+        position: t.map_position, // Use map_position for display (same space as backend floor plan)
         person_type: t.person_type,
       }));
 
       setPatients(patientsData);
       setTrackedPeople(transformedTracked);
       setStats(statsData);
+      setFloorPlan(floorPlanData);
       setError(null);
       setIsConnected(true);
     } catch (err) {
       console.error("Failed to fetch data:", err);
       setError(err.message);
       setIsConnected(false);
+      setFloorPlan(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Initial fetch + polling
+  // Initial fetch + optional polling (only poll when pollInterval is a positive number)
   useEffect(() => {
     fetchData();
-
-    const interval = setInterval(fetchData, pollInterval);
+    const ms = typeof pollInterval === "number" && pollInterval > 0 ? pollInterval : null;
+    if (ms == null) return;
+    const interval = setInterval(fetchData, ms);
     return () => clearInterval(interval);
   }, [fetchData, pollInterval]);
 
@@ -124,6 +131,7 @@ export function useAegisData(pollInterval = 2000) {
     patients,
     trackedPeople,
     stats,
+    floorPlan,
 
     // State
     loading,

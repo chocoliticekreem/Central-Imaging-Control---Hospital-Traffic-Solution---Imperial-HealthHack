@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getVideoStatus } from "../api/client";
 
 export default function VideoFeed({ isConnected }) {
   const [isActive, setIsActive] = useState(false);
@@ -6,9 +7,21 @@ export default function VideoFeed({ isConnected }) {
 
   const videoUrl = "http://localhost:8000/api/video";
 
-  const handleToggle = () => {
-    setIsActive(!isActive);
+  const handleToggle = async () => {
     setError(null);
+    if (!isActive) {
+      try {
+        const status = await getVideoStatus();
+        if (!status.available) {
+          setError(status.message || "Camera not available");
+          return;
+        }
+      } catch (e) {
+        // Still allow trying the stream (e.g. status endpoint down but camera might work)
+        setError(null);
+      }
+    }
+    setIsActive(!isActive);
   };
 
   return (
@@ -56,7 +69,7 @@ export default function VideoFeed({ isConnected }) {
         )}
 
         {error && (
-          <div className="absolute bottom-4 left-4 right-4 bg-red-500/90 text-white px-4 py-2 rounded-lg text-sm">
+          <div className="absolute bottom-4 left-4 right-4 bg-red-500/90 text-white px-4 py-3 rounded-lg text-sm whitespace-pre-wrap">
             {error}
           </div>
         )}
