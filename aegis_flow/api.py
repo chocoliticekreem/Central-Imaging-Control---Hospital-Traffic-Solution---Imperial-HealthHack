@@ -42,7 +42,6 @@ sm.floor_plan.create_demo_floor_plan()
 class PatientResponse(BaseModel):
     patient_id: str
     name: str
-    age: int
     chief_complaint: str
     news2_score: int
     risk_level: str
@@ -84,18 +83,17 @@ def get_patients():
         PatientResponse(
             patient_id=p.patient_id,
             name=p.name,
-            age=p.age,
             chief_complaint=p.chief_complaint,
             news2_score=p.news2_score,
             risk_level=p.risk_level,
             status_color=p.status_color,
             vitals={
-                "hr": p.hr,
-                "bp_sys": p.bp_sys,
-                "bp_dia": p.bp_dia,
-                "rr": p.rr,
-                "temp": p.temp,
-                "spo2": p.spo2,
+                "hr": p.pulse,
+                "bp_sys": p.systolic_bp,
+                "bp_dia": 80,  # Not tracked separately
+                "rr": p.respiratory_rate,
+                "temp": p.temperature,
+                "spo2": p.oxygen_saturation,
             }
         )
         for p in patients
@@ -111,18 +109,17 @@ def get_patient(patient_id: str):
     return PatientResponse(
         patient_id=p.patient_id,
         name=p.name,
-        age=p.age,
         chief_complaint=p.chief_complaint,
         news2_score=p.news2_score,
         risk_level=p.risk_level,
         status_color=p.status_color,
         vitals={
-            "hr": p.hr,
-            "bp_sys": p.bp_sys,
-            "bp_dia": p.bp_dia,
-            "rr": p.rr,
-            "temp": p.temp,
-            "spo2": p.spo2,
+            "hr": p.pulse,
+            "bp_sys": p.systolic_bp,
+            "bp_dia": 80,
+            "rr": p.respiratory_rate,
+            "temp": p.temperature,
+            "spo2": p.oxygen_saturation,
         }
     )
 
@@ -135,18 +132,17 @@ def get_patients_by_risk(risk_level: str):
         PatientResponse(
             patient_id=p.patient_id,
             name=p.name,
-            age=p.age,
             chief_complaint=p.chief_complaint,
             news2_score=p.news2_score,
             risk_level=p.risk_level,
             status_color=p.status_color,
             vitals={
-                "hr": p.hr,
-                "bp_sys": p.bp_sys,
-                "bp_dia": p.bp_dia,
-                "rr": p.rr,
-                "temp": p.temp,
-                "spo2": p.spo2,
+                "hr": p.pulse,
+                "bp_sys": p.systolic_bp,
+                "bp_dia": 80,
+                "rr": p.respiratory_rate,
+                "temp": p.temperature,
+                "spo2": p.oxygen_saturation,
             }
         )
         for p in patients
