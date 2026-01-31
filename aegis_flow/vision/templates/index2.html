@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPR Live Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; padding-bottom: 80px; }
+        .header { background: #003366; color: white; padding: 20px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { margin: 0; }
+        
+        #patient-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+        
+        .card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 10px solid gray; }
+        .card.Red { border-left-color: #ff3b30; }
+        .card.Yellow { border-left-color: #ffcc00; }
+        .card.Green { border-left-color: #34c759; }
+        
+        .row { display: flex; justify-content: space-between; align-items: center; }
+        .label { color: #888; font-size: 0.75em; text-transform: uppercase; margin-bottom: 4px; }
+        .value { font-weight: 600; font-size: 1.1em; color: #333; }
+        .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.85em; font-weight: bold; background:#eee; }
+        
+        /* Floating Map Button */
+        .map-btn { position: fixed; bottom: 20px; right: 20px; background: #007aff; color: white; border: none; padding: 15px 30px; border-radius: 50px; font-size: 1.1em; font-weight: bold; box-shadow: 0 5px 15px rgba(0,122,255,0.4); cursor: pointer; z-index: 999; }
+        .map-btn:active { transform: scale(0.95); }
+
+        /* Modal */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(5px); }
+        .modal { background: white; width: 95%; max-width: 600px; border-radius: 20px; padding: 20px; position: relative; animation: popIn 0.2s ease-out; }
+        
+        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        .close-btn { position: absolute; top: 15px; right: 15px; background: #eee; border: none; width: 35px; height: 35px; border-radius: 50%; font-size: 1.2em; cursor: pointer; }
+        .live-map-img { width: 100%; border-radius: 12px; border: 2px solid #eee; display: block; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h2>🏥 Imperial HealthHack</h2>
+        <p style="margin: 5px 0 0 0; opacity: 0.8;">Live Patient Tracking System</p>
+    </div>
+
+    <div id="patient-list">
+        <p>Searching for patients...</p>
+    </div>
+
+    <button class="map-btn" onclick="openMap()">📍 View Live Map</button>
+
+    <div id="map-modal" class="modal-overlay" onclick="closeMap(event)">
+        <div class="modal">
+            <h3 style="margin-top:0;">Live Floor Plan</h3>
+            <button class="close-btn" onclick="closeMap(event, true)">×</button>
+            <img src="/map_feed" class="live-map-img" alt="Live Map Feed">
+        </div>
+    </div>
+
+    <script>
+        function updateDashboard() {
+            fetch('/data')
+                .then(response => response.json())
+                .then(data => {
+                    const container = document.getElementById('patient-list');
+                    container.innerHTML = ''; 
+
+                    if (Object.keys(data).length === 0) {
+                        container.innerHTML = '<p style="padding:20px; color:#666;">No patients detected.</p>';
+                        return;
+                    }
+
+                    for (const [gid, patient] of Object.entries(data)) {
+                        const color = patient.triage_score.split(' ')[0]; 
+                        const html = `
+                            <div class="card ${color}">
+                                <div class="row">
+                                    <div><div class="label">NAME</div><div class="value">${patient.name}</div></div>
+                                    <div class="badge">${patient.epr_id}</div>
+                                </div>
+                                <div style="margin-top: 15px;">
+                                    <div class="label">CONDITION</div>
+                                    <div style="font-size: 1em;">${patient.condition}</div>
+                                </div>
+                                <div style="margin-top: 10px;">
+                                    <span style="font-size:0.85em; color:${color === 'Yellow' ? '#b58900' : color}; font-weight:bold;">
+                                        ● ${patient.triage_score}
+                                    </span>
+                                </div>
+                            </div>
+                        `;
+                        container.innerHTML += html;
+                    }
+                });
+        }
+
+        function openMap() {
+            document.getElementById('map-modal').style.display = 'flex';
+        }
+
+        function closeMap(event, force) {
+            if (force || event.target.id === 'map-modal') {
+                document.getElementById('map-modal').style.display = 'none';
+            }
+        }
+
+        setInterval(updateDashboard, 1000);
+        updateDashboard();
+    </script>
+</body>
+</html>
