@@ -121,6 +121,9 @@ def create_demo_patients() -> List[PatientRecord]:
     for p in patients:
         p.calculate_news2()
 
+    # Sort by NEWS2 score (highest to lowest)
+    patients.sort(key=lambda p: p.news2_score, reverse=True)
+
     return patients
 
 
@@ -153,6 +156,39 @@ class ELRMock:
     def get_high_risk_patients(self) -> List[PatientRecord]:
         """Get all high and medium risk patients."""
         return [p for p in self._patients.values() if p.risk_level in ("high", "medium")]
+
+    def get_ranked_patients(self) -> List[PatientRecord]:
+        """Get all patients ranked by NEWS2 score (highest risk first)."""
+        return sorted(self._patients.values(), key=lambda p: p.news2_score, reverse=True)
+
+    def get_top_priority_patients(self, n: int = 5) -> List[PatientRecord]:
+        """Get top N most critical patients by NEWS2 score."""
+        return self.get_ranked_patients()[:n]
+
+    def get_ranking_tier(self, patient_id: str) -> dict:
+        """Get ranking information for a patient (tier, position, percentile)."""
+        patient = self._patients.get(patient_id)
+        if not patient:
+            return None
+        
+        ranked = self.get_ranked_patients()
+        position = next((i for i, p in enumerate(ranked) if p.patient_id == patient_id), None)
+        
+        if position is None:
+            return None
+        
+        percentile = (position / len(ranked)) * 100 if ranked else 0
+        
+        return {
+            "patient_id": patient_id,
+            "name": patient.name,
+            "news2_score": patient.news2_score,
+            "risk_level": patient.risk_level,
+            "rank": position + 1,
+            "total_patients": len(ranked),
+            "percentile": round(percentile, 1),
+            "tier": "critical" if patient.news2_score >= 7 else "urgent" if patient.news2_score >= 5 else "stable"
+        }
 
     def update_vitals(
         self,
