@@ -1,79 +1,92 @@
 export default function PatientList({ patients, trackedPeople, onSelectPatient }) {
-  // Group by risk level
   const byRisk = {
     high: patients.filter((p) => p.risk_level === "high"),
     medium: patients.filter((p) => p.risk_level === "medium"),
     low: patients.filter((p) => p.risk_level === "low"),
   };
 
-  // Check if patient is currently tracked
   const isLocated = (patientId) => {
     return trackedPeople.some((t) => t.patient_id === patientId);
   };
 
-  const RiskSection = ({ level, icon, patients, defaultOpen }) => {
+  const RiskSection = ({ level, patients }) => {
     if (patients.length === 0) return null;
 
-    const colors = {
-      high: "border-red-500 bg-red-500/10",
-      medium: "border-yellow-500 bg-yellow-500/10",
-      low: "border-green-500 bg-green-500/10",
-    };
+    const config = {
+      high: { label: "Critical", color: "red", icon: "🔴" },
+      medium: { label: "Urgent", color: "yellow", icon: "🟡" },
+      low: { label: "Stable", color: "green", icon: "🟢" },
+    }[level];
 
     return (
-      <div className={`border-l-4 ${colors[level]} rounded-r-lg mb-4`}>
-        <div className="p-3">
-          <h3 className="font-semibold mb-2">
-            {icon} {level.toUpperCase()} ({patients.length})
-          </h3>
-          <div className="space-y-2">
-            {patients.map((patient) => (
-              <div
-                key={patient.patient_id}
-                className="patient-card bg-slate-700/50 rounded p-3 cursor-pointer hover:bg-slate-700"
-                onClick={() => onSelectPatient(patient)}
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="font-medium">{patient.patient_id}</span>
-                    <span className="text-slate-400 ml-2">{patient.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isLocated(patient.patient_id) ? (
-                      <span className="text-green-400">📍</span>
-                    ) : (
-                      <span className="text-slate-500">❓</span>
-                    )}
-                    <span
-                      className={`text-lg font-bold ${
-                        level === "high"
-                          ? "text-red-400"
-                          : level === "medium"
-                          ? "text-yellow-400"
-                          : "text-green-400"
-                      }`}
-                    >
-                      {patient.news2_score}
-                    </span>
-                  </div>
+      <div className="mb-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span>{config.icon}</span>
+          <span className="text-sm font-semibold text-slate-300">
+            {config.label}
+          </span>
+          <span className="text-xs text-slate-500">({patients.length})</span>
+        </div>
+        <div className="space-y-2">
+          {patients.map((patient) => (
+            <div
+              key={patient.patient_id}
+              onClick={() => onSelectPatient(patient)}
+              className={`p-3 rounded-lg cursor-pointer transition-all border ${
+                level === "high"
+                  ? "bg-red-500/10 border-red-500/30 hover:border-red-500/50"
+                  : level === "medium"
+                  ? "bg-yellow-500/10 border-yellow-500/30 hover:border-yellow-500/50"
+                  : "bg-slate-700/30 border-slate-600/30 hover:border-slate-500/50"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {isLocated(patient.patient_id) ? (
+                    <span className="text-emerald-400 text-sm">📍</span>
+                  ) : (
+                    <span className="text-slate-500 text-sm">❓</span>
+                  )}
+                  <span className="font-medium text-white">
+                    {patient.patient_id}
+                  </span>
                 </div>
-                <div className="text-sm text-slate-400 mt-1">
-                  {patient.chief_complaint}
-                </div>
+                <span
+                  className={`text-xl font-bold ${
+                    level === "high"
+                      ? "text-red-400"
+                      : level === "medium"
+                      ? "text-yellow-400"
+                      : "text-green-400"
+                  }`}
+                >
+                  {patient.news2_score}
+                </span>
               </div>
-            ))}
-          </div>
+              <div className="text-sm text-slate-400 mt-1">{patient.name}</div>
+              <div className="text-xs text-slate-500 mt-0.5 truncate">
+                {patient.chief_complaint}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
   };
 
   return (
-    <div className="bg-slate-800 rounded-lg p-4">
-      <h2 className="text-xl font-semibold mb-4">📋 Patients</h2>
-      <RiskSection level="high" icon="🔴" patients={byRisk.high} defaultOpen />
-      <RiskSection level="medium" icon="🟡" patients={byRisk.medium} defaultOpen />
-      <RiskSection level="low" icon="🟢" patients={byRisk.low} />
+    <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden h-full">
+      <div className="p-4 border-b border-slate-700">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <span className="text-xl">📋</span>
+          Patients
+        </h2>
+      </div>
+      <div className="p-4 overflow-y-auto max-h-[500px]">
+        <RiskSection level="high" patients={byRisk.high} />
+        <RiskSection level="medium" patients={byRisk.medium} />
+        <RiskSection level="low" patients={byRisk.low} />
+      </div>
     </div>
   );
 }

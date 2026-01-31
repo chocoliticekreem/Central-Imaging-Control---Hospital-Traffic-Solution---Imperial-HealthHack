@@ -6,112 +6,135 @@ import FloorMap from "./components/FloorMap";
 import PatientList from "./components/PatientList";
 import CriticalAlert from "./components/CriticalAlert";
 import Sidebar from "./components/Sidebar";
+import VideoFeed from "./components/VideoFeed";
+
+import { useAegisData } from "./hooks/useAegisData";
 
 import {
-  mockPatients as initialPatients,
-  mockTrackedPeople as initialTracked,
+  mockPatients,
+  mockTrackedPeople,
   mockStats,
 } from "./data/mockData";
 
 function App() {
-  const [patients, setPatients] = useState(initialPatients);
-  const [trackedPeople, setTrackedPeople] = useState(initialTracked);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [selectedPerson, setSelectedPerson] = useState(null);
+  const [useMockData, setUseMockData] = useState(false);
 
-  // Calculate live stats
-  const stats = {
-    total_tracked: trackedPeople.length,
-    tagged_patients: trackedPeople.filter((t) => t.patient_id).length,
-    untagged: trackedPeople.filter((t) => !t.patient_id).length,
-    staff_count: trackedPeople.filter((t) => t.person_type === "staff").length,
-    critical_located: trackedPeople.filter((t) => {
-      const p = patients.find((p) => p.patient_id === t.patient_id);
-      return p?.risk_level === "high";
-    }).length,
-    urgent_located: trackedPeople.filter((t) => {
-      const p = patients.find((p) => p.patient_id === t.patient_id);
-      return p?.risk_level === "medium";
-    }).length,
+  const {
+    patients: apiPatients,
+    trackedPeople: apiTracked,
+    stats: apiStats,
+    loading,
+    error,
+    isConnected,
+    enroll,
+    updateVitals,
+    addPerson,
+    setupDemo,
+    clearAll,
+  } = useAegisData(autoRefresh ? 2000 : null);
+
+  const patients = useMockData || !isConnected ? mockPatients : apiPatients;
+  const trackedPeople = useMockData || !isConnected ? mockTrackedPeople : apiTracked;
+  const stats = useMockData || !isConnected ? mockStats : apiStats;
+
+  const handleEnroll = async (trackId, patientId) => {
+    if (useMockData || !isConnected) return;
+    await enroll(trackId, patientId);
   };
 
-  // Handle enrollment
-  const handleEnroll = (trackId, patientId) => {
-    setTrackedPeople((prev) =>
-      prev.map((t) =>
-        t.track_id === trackId ? { ...t, patient_id: patientId } : t
-      )
-    );
+  const handleUpdateVitals = async (patientId, direction) => {
+    if (useMockData || !isConnected) return;
+    await updateVitals(patientId, direction);
   };
 
-  // Handle vitals update (demo)
-  const handleUpdateVitals = (patientId, direction) => {
-    setPatients((prev) =>
-      prev.map((p) => {
-        if (p.patient_id !== patientId) return p;
+  const handleAddPerson = async () => {
+    if (useMockData || !isConnected) return;
+    await addPerson("cam_corridor", "patient");
+  };
 
-        let newScore = p.news2_score + (direction === "worse" ? 2 : -2);
-        newScore = Math.max(0, Math.min(12, newScore));
+  const handleSetupDemo = async () => {
+    if (useMockData || !isConnected) return;
+    await setupDemo();
+  };
 
-        let risk_level = "low";
-        let status_color = "#28a745";
-        if (newScore >= 7) {
-          risk_level = "high";
-          status_color = "#dc3545";
-        } else if (newScore >= 5) {
-          risk_level = "medium";
-          status_color = "#ffc107";
-        }
-
-        return { ...p, news2_score: newScore, risk_level, status_color };
-      })
-    );
+  const handleClearAll = async () => {
+    if (useMockData || !isConnected) return;
+    await clearAll();
   };
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex">
       {/* Main Content */}
-      <div className="flex-1 p-6">
+      <div className="flex-1 p-6 overflow-auto">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold">🏥 Aegis Flow</h1>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" className="w-4 h-4" />
-              <span>📷 Webcam</span>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+              <span className="text-3xl">🏥</span>
+              Aegis Flow
+            </h1>
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-medium ${
+                loading
+                  ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                  : isConnected
+                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                  : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+              }`}
+            >
+              {loading ? "● Connecting..." : isConnected ? "● Live" : "○ Offline"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-300 hover:text-white transition-colors">
+              <input
+                type="checkbox"
+                className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+              />
+              Auto Refresh
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" className="w-4 h-4" />
-              <span>🔄 Auto Refresh</span>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-300 hover:text-white transition-colors">
+              <input
+                type="checkbox"
+                className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800"
+                checked={useMockData}
+                onChange={(e) => setUseMockData(e.target.checked)}
+              />
+              Mock Data
             </label>
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Stats Bar */}
         <StatsBar stats={stats} />
 
         {/* Critical Alerts */}
         <CriticalAlert patients={patients} trackedPeople={trackedPeople} />
 
-        {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Floor Map */}
-          <div className="lg:col-span-2">
-            <FloorMap
-              trackedPeople={trackedPeople}
-              patients={patients}
-              onSelectPerson={setSelectedPerson}
-            />
-          </div>
+        {/* Main Grid - 2 columns */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+          {/* Video Feed */}
+          <VideoFeed isConnected={isConnected && !useMockData} />
 
-          {/* Patient List */}
-          <div>
-            <PatientList
-              patients={patients}
-              trackedPeople={trackedPeople}
-              onSelectPatient={(p) => console.log("Selected:", p)}
-            />
-          </div>
+          {/* Floor Map */}
+          <FloorMap
+            trackedPeople={trackedPeople}
+            patients={patients}
+            onSelectPerson={setSelectedPerson}
+          />
         </div>
+
+        {/* Patient List - Full Width */}
+        <PatientList
+          patients={patients}
+          trackedPeople={trackedPeople}
+          onSelectPatient={(p) => console.log("Selected:", p)}
+        />
       </div>
 
       {/* Sidebar */}
@@ -120,6 +143,10 @@ function App() {
         trackedPeople={trackedPeople}
         onEnroll={handleEnroll}
         onUpdateVitals={handleUpdateVitals}
+        onAddPerson={handleAddPerson}
+        onSetupDemo={handleSetupDemo}
+        onClearAll={handleClearAll}
+        isConnected={isConnected && !useMockData}
       />
     </div>
   );

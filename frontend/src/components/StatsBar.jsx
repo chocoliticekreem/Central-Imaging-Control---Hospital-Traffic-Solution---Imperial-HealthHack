@@ -1,24 +1,30 @@
 export default function StatsBar({ stats }) {
   const items = [
-    { label: "Tracked", value: stats.total_tracked, icon: "👥" },
-    { label: "Enrolled", value: stats.tagged_patients, icon: "🏷️" },
-    { label: "Unknown", value: stats.untagged, icon: "❓" },
-    { label: "Critical", value: stats.critical_located, icon: "🔴", highlight: true },
-    { label: "Urgent", value: stats.urgent_located, icon: "🟡" },
+    { label: "Tracked", value: stats.total_tracked, icon: "👥", color: "text-blue-400" },
+    { label: "Enrolled", value: stats.tagged_patients, icon: "🏷️", color: "text-emerald-400" },
+    { label: "Unknown", value: stats.untagged, icon: "❓", color: "text-slate-400" },
+    { label: "Critical", value: stats.critical_located, icon: "🔴", color: "text-red-400", highlight: true },
+    { label: "Urgent", value: stats.urgent_located, icon: "🟡", color: "text-yellow-400" },
   ];
 
   return (
-    <div className="flex gap-4 mb-6">
+    <div className="grid grid-cols-5 gap-3 mb-6">
       {items.map((item) => (
         <div
           key={item.label}
-          className={`flex-1 bg-slate-800 rounded-lg p-4 ${
-            item.highlight && item.value > 0 ? "ring-2 ring-red-500" : ""
+          className={`bg-slate-800/50 backdrop-blur rounded-xl p-4 border transition-all ${
+            item.highlight && item.value > 0
+              ? "border-red-500/50 shadow-lg shadow-red-500/10"
+              : "border-slate-700/50 hover:border-slate-600"
           }`}
         >
-          <div className="text-2xl mb-1">{item.icon}</div>
-          <div className="text-3xl font-bold">{item.value}</div>
-          <div className="text-slate-400 text-sm">{item.label}</div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-2xl">{item.icon}</span>
+            <span className={`text-3xl font-bold ${item.color}`}>
+              {item.value}
+            </span>
+          </div>
+          <div className="text-slate-400 text-sm font-medium">{item.label}</div>
         </div>
       ))}
     </div>

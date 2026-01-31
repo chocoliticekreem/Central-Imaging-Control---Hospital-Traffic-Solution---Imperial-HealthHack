@@ -1,21 +1,29 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Sidebar({
   patients,
   trackedPeople,
   onEnroll,
   onUpdateVitals,
+  onAddPerson,
+  onSetupDemo,
+  onClearAll,
+  isConnected,
 }) {
   const [selectedTrack, setSelectedTrack] = useState("");
   const [selectedPatient, setSelectedPatient] = useState("");
-  const [vitalsPatient, setVitalsPatient] = useState(patients[0]?.patient_id || "");
+  const [vitalsPatient, setVitalsPatient] = useState("");
 
-  // Get unidentified people (not staff, not enrolled)
+  useEffect(() => {
+    if (patients.length > 0 && !vitalsPatient) {
+      setVitalsPatient(patients[0].patient_id);
+    }
+  }, [patients, vitalsPatient]);
+
   const unidentified = trackedPeople.filter(
     (t) => !t.patient_id && t.person_type !== "staff"
   );
 
-  // Get patients not yet enrolled
   const enrolledIds = trackedPeople
     .filter((t) => t.patient_id)
     .map((t) => t.patient_id);
@@ -25,164 +33,207 @@ export default function Sidebar({
 
   const currentPatient = patients.find((p) => p.patient_id === vitalsPatient);
 
-  const handleEnroll = () => {
+  const handleEnroll = async () => {
     if (selectedTrack && selectedPatient) {
-      onEnroll(selectedTrack, selectedPatient);
+      await onEnroll(selectedTrack, selectedPatient);
       setSelectedTrack("");
       setSelectedPatient("");
     }
   };
 
   return (
-    <div className="w-80 bg-slate-800 p-4 space-y-6 overflow-y-auto">
-      <h2 className="text-xl font-bold">⚙️ Controls</h2>
+    <div className="w-80 bg-slate-900/50 backdrop-blur border-l border-slate-700 p-4 space-y-4 overflow-y-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between pb-4 border-b border-slate-700">
+        <h2 className="text-lg font-bold text-white">Controls</h2>
+        <span
+          className={`px-2 py-1 rounded-full text-xs font-medium ${
+            isConnected
+              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+              : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+          }`}
+        >
+          {isConnected ? "● Live" : "○ Mock"}
+        </span>
+      </div>
 
-      {/* Enrollment Panel */}
-      <div className="bg-slate-700 rounded-lg p-4">
-        <h3 className="font-semibold mb-3">🏷️ Enrollment</h3>
+      {/* Enrollment */}
+      <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+        <h3 className="font-semibold text-white mb-3 flex items-center gap-2">
+          <span>🏷️</span> Enrollment
+        </h3>
 
         {unidentified.length === 0 ? (
-          <div className="text-green-400 text-sm">✓ All enrolled</div>
+          <div className="text-emerald-400 text-sm flex items-center gap-2">
+            <span>✓</span> All patients enrolled
+          </div>
         ) : (
-          <>
-            <div className="text-yellow-400 text-sm mb-3">
+          <div className="space-y-3">
+            <div className="text-yellow-400 text-sm">
               {unidentified.length} unidentified
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm text-slate-400">Person</label>
-                <select
-                  className="w-full bg-slate-600 rounded p-2 mt-1"
-                  value={selectedTrack}
-                  onChange={(e) => setSelectedTrack(e.target.value)}
-                >
-                  <option value="">Select...</option>
-                  {unidentified.map((t) => (
-                    <option key={t.track_id} value={t.track_id}>
-                      {t.track_id}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <select
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+              value={selectedTrack}
+              onChange={(e) => setSelectedTrack(e.target.value)}
+            >
+              <option value="">Select person...</option>
+              {unidentified.map((t) => (
+                <option key={t.track_id} value={t.track_id}>
+                  {t.track_id}
+                </option>
+              ))}
+            </select>
 
-              <div>
-                <label className="text-sm text-slate-400">Patient</label>
-                <select
-                  className="w-full bg-slate-600 rounded p-2 mt-1"
-                  value={selectedPatient}
-                  onChange={(e) => setSelectedPatient(e.target.value)}
-                >
-                  <option value="">Select...</option>
-                  {availablePatients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.patient_id}: {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <select
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+              value={selectedPatient}
+              onChange={(e) => setSelectedPatient(e.target.value)}
+            >
+              <option value="">Select patient...</option>
+              {availablePatients.map((p) => (
+                <option key={p.patient_id} value={p.patient_id}>
+                  {p.patient_id}: {p.name}
+                </option>
+              ))}
+            </select>
 
-              <button
-                className="w-full bg-blue-600 hover:bg-blue-700 rounded p-2 font-semibold disabled:opacity-50"
-                onClick={handleEnroll}
-                disabled={!selectedTrack || !selectedPatient}
-              >
-                ✓ Enroll
-              </button>
-            </div>
-          </>
+            <button
+              className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg p-2.5 text-sm font-medium transition-colors"
+              onClick={handleEnroll}
+              disabled={!selectedTrack || !selectedPatient}
+            >
+              Enroll Patient
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Vitals Panel */}
-      <div className="bg-slate-700 rounded-lg p-4">
-        <h3 className="font-semibold mb-3">💉 Vitals</h3>
+      {/* Vitals */}
+      <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+        <h3 className="font-semibold text-white mb-3 flex items-center gap-2">
+          <span>💉</span> Vitals Monitor
+        </h3>
 
-        <select
-          className="w-full bg-slate-600 rounded p-2 mb-4"
-          value={vitalsPatient}
-          onChange={(e) => setVitalsPatient(e.target.value)}
-        >
-          {patients.map((p) => (
-            <option key={p.patient_id} value={p.patient_id}>
-              {p.patient_id}: {p.name}
-            </option>
-          ))}
-        </select>
-
-        {currentPatient && (
+        {patients.length === 0 ? (
+          <div className="text-slate-400 text-sm">No patients loaded</div>
+        ) : (
           <>
-            {/* Big NEWS2 display */}
-            <div
-              className="text-center py-4 rounded-lg mb-4"
-              style={{ backgroundColor: currentPatient.status_color + "33" }}
+            <select
+              className="w-full bg-slate-700 border border-slate-600 rounded-lg p-2.5 text-sm text-white focus:border-blue-500 focus:outline-none mb-4"
+              value={vitalsPatient}
+              onChange={(e) => setVitalsPatient(e.target.value)}
             >
-              <div
-                className="text-5xl font-bold"
-                style={{ color: currentPatient.status_color }}
-              >
-                {currentPatient.news2_score}
-              </div>
-              <div className="text-slate-400 text-sm mt-1">
-                NEWS2 Score - {currentPatient.risk_level.toUpperCase()} risk
-              </div>
-            </div>
+              {patients.map((p) => (
+                <option key={p.patient_id} value={p.patient_id}>
+                  {p.patient_id}: {p.name}
+                </option>
+              ))}
+            </select>
 
-            {/* Vitals grid */}
-            <div className="grid grid-cols-2 gap-2 text-sm mb-4">
-              <div className="bg-slate-600 rounded p-2">
-                <div className="text-slate-400">HR</div>
-                <div className="font-semibold">{currentPatient.vitals.hr} bpm</div>
-              </div>
-              <div className="bg-slate-600 rounded p-2">
-                <div className="text-slate-400">BP</div>
-                <div className="font-semibold">
-                  {currentPatient.vitals.bp_sys}/{currentPatient.vitals.bp_dia}
+            {currentPatient && (
+              <>
+                {/* NEWS2 Display */}
+                <div
+                  className="text-center py-6 rounded-xl mb-4 border"
+                  style={{
+                    backgroundColor: currentPatient.status_color + "15",
+                    borderColor: currentPatient.status_color + "40",
+                  }}
+                >
+                  <div
+                    className="text-5xl font-bold"
+                    style={{ color: currentPatient.status_color }}
+                  >
+                    {currentPatient.news2_score}
+                  </div>
+                  <div className="text-slate-400 text-sm mt-2">
+                    NEWS2 • {currentPatient.risk_level.toUpperCase()}
+                  </div>
                 </div>
-              </div>
-              <div className="bg-slate-600 rounded p-2">
-                <div className="text-slate-400">SpO2</div>
-                <div className="font-semibold">{currentPatient.vitals.spo2}%</div>
-              </div>
-              <div className="bg-slate-600 rounded p-2">
-                <div className="text-slate-400">Temp</div>
-                <div className="font-semibold">{currentPatient.vitals.temp}°C</div>
-              </div>
-            </div>
 
-            {/* Demo buttons */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                className="bg-red-600 hover:bg-red-700 rounded p-2 text-sm"
-                onClick={() => onUpdateVitals(vitalsPatient, "worse")}
-              >
-                ⬆️ Worse
-              </button>
-              <button
-                className="bg-green-600 hover:bg-green-700 rounded p-2 text-sm"
-                onClick={() => onUpdateVitals(vitalsPatient, "better")}
-              >
-                ⬇️ Better
-              </button>
-            </div>
+                {/* Vitals Grid */}
+                {currentPatient.vitals && (
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    {[
+                      { label: "HR", value: `${currentPatient.vitals.hr}`, unit: "bpm" },
+                      { label: "BP", value: `${currentPatient.vitals.bp_sys}/${currentPatient.vitals.bp_dia}`, unit: "" },
+                      { label: "SpO2", value: `${currentPatient.vitals.spo2}`, unit: "%" },
+                      { label: "Temp", value: `${currentPatient.vitals.temp}`, unit: "°C" },
+                    ].map((vital) => (
+                      <div
+                        key={vital.label}
+                        className="bg-slate-700/50 rounded-lg p-2.5 text-center"
+                      >
+                        <div className="text-xs text-slate-400">{vital.label}</div>
+                        <div className="text-white font-semibold">
+                          {vital.value}
+                          <span className="text-xs text-slate-400 ml-0.5">
+                            {vital.unit}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Demo Buttons */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    className="bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 rounded-lg p-2 text-sm font-medium transition-colors disabled:opacity-50"
+                    onClick={() => onUpdateVitals(vitalsPatient, "worse")}
+                    disabled={!isConnected}
+                  >
+                    ↑ Deteriorate
+                  </button>
+                  <button
+                    className="bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-400 rounded-lg p-2 text-sm font-medium transition-colors disabled:opacity-50"
+                    onClick={() => onUpdateVitals(vitalsPatient, "better")}
+                    disabled={!isConnected}
+                  >
+                    ↓ Improve
+                  </button>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
 
       {/* Demo Controls */}
-      <div className="bg-slate-700 rounded-lg p-4">
-        <h3 className="font-semibold mb-3">🎮 Demo</h3>
+      <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+        <h3 className="font-semibold text-white mb-3 flex items-center gap-2">
+          <span>🎮</span> Demo Controls
+        </h3>
         <div className="space-y-2">
-          <button className="w-full bg-purple-600 hover:bg-purple-700 rounded p-2 text-sm">
-            🎲 Add Demo Data
+          <button
+            className="w-full bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-400 rounded-lg p-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+            onClick={onSetupDemo}
+            disabled={!isConnected}
+          >
+            Load Demo Data
           </button>
-          <button className="w-full bg-slate-600 hover:bg-slate-500 rounded p-2 text-sm">
-            ➕ Add Person
+          <button
+            className="w-full bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg p-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+            onClick={onAddPerson}
+            disabled={!isConnected}
+          >
+            + Add Person
           </button>
-          <button className="w-full bg-slate-600 hover:bg-slate-500 rounded p-2 text-sm">
-            🗑️ Clear All
+          <button
+            className="w-full bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 rounded-lg p-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+            onClick={onClearAll}
+            disabled={!isConnected}
+          >
+            Clear All
           </button>
         </div>
+        {!isConnected && (
+          <p className="text-xs text-slate-500 mt-3 text-center">
+            Start backend to enable controls
+          </p>
+        )}
       </div>
     </div>
   );
