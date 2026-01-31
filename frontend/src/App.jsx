@@ -7,64 +7,73 @@ import PatientList from "./components/PatientList";
 import CriticalAlert from "./components/CriticalAlert";
 import Sidebar from "./components/Sidebar";
 
+import { useAegisData } from "./hooks/useAegisData";
+
+// Fallback mock data (used when backend is unavailable)
 import {
-  mockPatients as initialPatients,
-  mockTrackedPeople as initialTracked,
+  mockPatients,
+  mockTrackedPeople,
   mockStats,
 } from "./data/mockData";
 
 function App() {
-  const [patients, setPatients] = useState(initialPatients);
-  const [trackedPeople, setTrackedPeople] = useState(initialTracked);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [selectedPerson, setSelectedPerson] = useState(null);
+  const [useMockData, setUseMockData] = useState(false);
 
-  // Calculate live stats
-  const stats = {
-    total_tracked: trackedPeople.length,
-    tagged_patients: trackedPeople.filter((t) => t.patient_id).length,
-    untagged: trackedPeople.filter((t) => !t.patient_id).length,
-    staff_count: trackedPeople.filter((t) => t.person_type === "staff").length,
-    critical_located: trackedPeople.filter((t) => {
-      const p = patients.find((p) => p.patient_id === t.patient_id);
-      return p?.risk_level === "high";
-    }).length,
-    urgent_located: trackedPeople.filter((t) => {
-      const p = patients.find((p) => p.patient_id === t.patient_id);
-      return p?.risk_level === "medium";
-    }).length,
-  };
+  // Fetch data from backend (polls every 2 seconds when autoRefresh is on)
+  const {
+    patients: apiPatients,
+    trackedPeople: apiTracked,
+    stats: apiStats,
+    loading,
+    error,
+    isConnected,
+    enroll,
+    updateVitals,
+    addPerson,
+    setupDemo,
+    clearAll,
+  } = useAegisData(autoRefresh ? 2000 : null);
+
+  // Use mock data if backend unavailable or user toggles mock mode
+  const patients = useMockData || !isConnected ? mockPatients : apiPatients;
+  const trackedPeople = useMockData || !isConnected ? mockTrackedPeople : apiTracked;
+  const stats = useMockData || !isConnected ? mockStats : apiStats;
 
   // Handle enrollment
-  const handleEnroll = (trackId, patientId) => {
-    setTrackedPeople((prev) =>
-      prev.map((t) =>
-        t.track_id === trackId ? { ...t, patient_id: patientId } : t
-      )
-    );
+  const handleEnroll = async (trackId, patientId) => {
+    if (useMockData || !isConnected) {
+      // Mock mode: just log
+      console.log("Mock enroll:", trackId, patientId);
+      return;
+    }
+    await enroll(trackId, patientId);
   };
 
-  // Handle vitals update (demo)
-  const handleUpdateVitals = (patientId, direction) => {
-    setPatients((prev) =>
-      prev.map((p) => {
-        if (p.patient_id !== patientId) return p;
+  // Handle vitals update
+  const handleUpdateVitals = async (patientId, direction) => {
+    if (useMockData || !isConnected) {
+      console.log("Mock vitals update:", patientId, direction);
+      return;
+    }
+    await updateVitals(patientId, direction);
+  };
 
-        let newScore = p.news2_score + (direction === "worse" ? 2 : -2);
-        newScore = Math.max(0, Math.min(12, newScore));
+  // Handle demo actions
+  const handleAddPerson = async () => {
+    if (useMockData || !isConnected) return;
+    await addPerson("cam_corridor", "patient");
+  };
 
-        let risk_level = "low";
-        let status_color = "#28a745";
-        if (newScore >= 7) {
-          risk_level = "high";
-          status_color = "#dc3545";
-        } else if (newScore >= 5) {
-          risk_level = "medium";
-          status_color = "#ffc107";
-        }
+  const handleSetupDemo = async () => {
+    if (useMockData || !isConnected) return;
+    await setupDemo();
+  };
 
-        return { ...p, news2_score: newScore, risk_level, status_color };
-      })
-    );
+  const handleClearAll = async () => {
+    if (useMockData || !isConnected) return;
+    await clearAll();
   };
 
   return (
@@ -73,18 +82,54 @@ function App() {
       <div className="flex-1 p-6">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold">🏥 Aegis Flow</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-3xl font-bold">🏥 Aegis Flow</h1>
+            {/* Connection status */}
+            <span
+              className={`px-2 py-1 rounded text-xs ${
+                isConnected
+                  ? "bg-green-600 text-white"
+                  : "bg-yellow-600 text-white"
+              }`}
+            >
+              {loading ? "Connecting..." : isConnected ? "Live" : "Offline (Mock)"}
+            </span>
+          </div>
+
           <div className="flex gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" className="w-4 h-4" />
-              <span>📷 Webcam</span>
+              <input
+                type="checkbox"
+                className="w-4 h-4"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+              />
+              <span>🔄 Auto Refresh</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" className="w-4 h-4" />
-              <span>🔄 Auto Refresh</span>
+              <input
+                type="checkbox"
+                className="w-4 h-4"
+                checked={useMockData}
+                onChange={(e) => setUseMockData(e.target.checked)}
+              />
+              <span>🧪 Mock Data</span>
             </label>
           </div>
         </div>
+
+        {/* Error banner */}
+        {error && !useMockData && (
+          <div className="bg-yellow-900/50 border border-yellow-500 rounded-lg p-3 mb-4 text-sm">
+            ⚠️ Backend unavailable: {error}. Showing mock data.
+            <button
+              className="ml-2 underline"
+              onClick={() => setUseMockData(true)}
+            >
+              Use mock mode
+            </button>
+          </div>
+        )}
 
         {/* Stats */}
         <StatsBar stats={stats} />
@@ -120,6 +165,10 @@ function App() {
         trackedPeople={trackedPeople}
         onEnroll={handleEnroll}
         onUpdateVitals={handleUpdateVitals}
+        onAddPerson={handleAddPerson}
+        onSetupDemo={handleSetupDemo}
+        onClearAll={handleClearAll}
+        isConnected={isConnected && !useMockData}
       />
     </div>
   );
