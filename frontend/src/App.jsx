@@ -6,10 +6,10 @@ import FloorMap from "./components/FloorMap";
 import PatientList from "./components/PatientList";
 import CriticalAlert from "./components/CriticalAlert";
 import Sidebar from "./components/Sidebar";
+import VideoFeed from "./components/VideoFeed";
 
 import { useAegisData } from "./hooks/useAegisData";
 
-// Fallback mock data (used when backend is unavailable)
 import {
   mockPatients,
   mockTrackedPeople,
@@ -21,7 +21,6 @@ function App() {
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [useMockData, setUseMockData] = useState(false);
 
-  // Fetch data from backend (polls every 2 seconds when autoRefresh is on)
   const {
     patients: apiPatients,
     trackedPeople: apiTracked,
@@ -36,31 +35,20 @@ function App() {
     clearAll,
   } = useAegisData(autoRefresh ? 2000 : null);
 
-  // Use mock data if backend unavailable or user toggles mock mode
   const patients = useMockData || !isConnected ? mockPatients : apiPatients;
   const trackedPeople = useMockData || !isConnected ? mockTrackedPeople : apiTracked;
   const stats = useMockData || !isConnected ? mockStats : apiStats;
 
-  // Handle enrollment
   const handleEnroll = async (trackId, patientId) => {
-    if (useMockData || !isConnected) {
-      // Mock mode: just log
-      console.log("Mock enroll:", trackId, patientId);
-      return;
-    }
+    if (useMockData || !isConnected) return;
     await enroll(trackId, patientId);
   };
 
-  // Handle vitals update
   const handleUpdateVitals = async (patientId, direction) => {
-    if (useMockData || !isConnected) {
-      console.log("Mock vitals update:", patientId, direction);
-      return;
-    }
+    if (useMockData || !isConnected) return;
     await updateVitals(patientId, direction);
   };
 
-  // Handle demo actions
   const handleAddPerson = async () => {
     if (useMockData || !isConnected) return;
     await addPerson("cam_corridor", "patient");
@@ -77,86 +65,76 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex">
       {/* Main Content */}
-      <div className="flex-1 p-6">
+      <div className="flex-1 p-6 overflow-auto">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <h1 className="text-3xl font-bold">🏥 Aegis Flow</h1>
-            {/* Connection status */}
+            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+              <span className="text-3xl">🏥</span>
+              Aegis Flow
+            </h1>
             <span
-              className={`px-2 py-1 rounded text-xs ${
-                isConnected
-                  ? "bg-green-600 text-white"
-                  : "bg-yellow-600 text-white"
+              className={`px-3 py-1 rounded-full text-xs font-medium ${
+                loading
+                  ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                  : isConnected
+                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                  : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
               }`}
             >
-              {loading ? "Connecting..." : isConnected ? "Live" : "Offline (Mock)"}
+              {loading ? "● Connecting..." : isConnected ? "● Live" : "○ Offline"}
             </span>
           </div>
 
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-300 hover:text-white transition-colors">
               <input
                 type="checkbox"
-                className="w-4 h-4"
+                className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800"
                 checked={autoRefresh}
                 onChange={(e) => setAutoRefresh(e.target.checked)}
               />
-              <span>🔄 Auto Refresh</span>
+              Auto Refresh
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-300 hover:text-white transition-colors">
               <input
                 type="checkbox"
-                className="w-4 h-4"
+                className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800"
                 checked={useMockData}
                 onChange={(e) => setUseMockData(e.target.checked)}
               />
-              <span>🧪 Mock Data</span>
+              Mock Data
             </label>
           </div>
         </div>
 
-        {/* Error banner */}
-        {error && !useMockData && (
-          <div className="bg-yellow-900/50 border border-yellow-500 rounded-lg p-3 mb-4 text-sm">
-            ⚠️ Backend unavailable: {error}. Showing mock data.
-            <button
-              className="ml-2 underline"
-              onClick={() => setUseMockData(true)}
-            >
-              Use mock mode
-            </button>
-          </div>
-        )}
-
-        {/* Stats */}
+        {/* Stats Bar */}
         <StatsBar stats={stats} />
 
         {/* Critical Alerts */}
         <CriticalAlert patients={patients} trackedPeople={trackedPeople} />
 
-        {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Floor Map */}
-          <div className="lg:col-span-2">
-            <FloorMap
-              trackedPeople={trackedPeople}
-              patients={patients}
-              onSelectPerson={setSelectedPerson}
-            />
-          </div>
+        {/* Main Grid - 2 columns */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+          {/* Video Feed */}
+          <VideoFeed isConnected={isConnected && !useMockData} />
 
-          {/* Patient List */}
-          <div>
-            <PatientList
-              patients={patients}
-              trackedPeople={trackedPeople}
-              onSelectPatient={(p) => console.log("Selected:", p)}
-            />
-          </div>
+          {/* Floor Map */}
+          <FloorMap
+            trackedPeople={trackedPeople}
+            patients={patients}
+            onSelectPerson={setSelectedPerson}
+          />
         </div>
+
+        {/* Patient List - Full Width */}
+        <PatientList
+          patients={patients}
+          trackedPeople={trackedPeople}
+          onSelectPatient={(p) => console.log("Selected:", p)}
+        />
       </div>
 
       {/* Sidebar */}

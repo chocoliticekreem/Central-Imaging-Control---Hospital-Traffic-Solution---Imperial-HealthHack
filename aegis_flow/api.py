@@ -8,17 +8,34 @@ Run: uvicorn aegis_flow.api:app --reload --port 8000
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import sys
 import os
+import cv2
+import time
+import threading
 
 # Add paths for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from aegis_flow.core.state_manager import StateManager
+from aegis_flow.vision.detector import PersonDetector
+from aegis_flow.vision.tracker import CentroidTracker
+from aegis_flow.vision.classifier import UniformClassifier
 
 app = FastAPI(title="Aegis Flow API", version="1.0.0")
+
+# Global CV components (initialized lazily)
+cv_components = {
+    "detector": None,
+    "tracker": None,
+    "classifier": None,
+    "camera": None,
+    "lock": threading.Lock(),
+    "running": False,
+}
 
 # CORS for React frontend
 app.add_middleware(
@@ -273,6 +290,108 @@ def demo_update_vitals(patient_id: str, direction: str):
     else:
         raise HTTPException(status_code=400, detail="Direction must be 'worse' or 'better'")
     return {"success": True}
+
+
+# ============================================================================
+# Video Streaming
+# ============================================================================
+
+def init_cv_components():
+    """Initialize CV components if not already done."""
+    with cv_components["lock"]:
+        if cv_components["detector"] is None:
+            print("Initializing CV components...")
+            cv_components["detector"] = PersonDetector(confidence=0.5)
+            cv_components["tracker"] = CentroidTracker(max_distance=80, max_missed=15)
+            cv_components["classifier"] = UniformClassifier()
+            print("CV components ready!")
+
+
+def generate_frames():
+    """Generator that yields MJPEG frames with CV processing."""
+    init_cv_components()
+
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    detector = cv_components["detector"]
+    tracker = cv_components["tracker"]
+    classifier = cv_components["classifier"]
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            time.sleep(0.1)
+            continue
+
+        # Run CV pipeline
+        detections = detector.detect(frame)
+        tracks = tracker.update(detections)
+
+        # Process each tracked person and update state manager
+        for track_id, tracked in tracks.items():
+            person_type = classifier.classify(frame, tracked.bbox)
+
+            # Update state manager
+            sm.update_tracked(
+                track_id=track_id,
+                camera_id="cam_webcam",
+                position=tracked.centroid,
+                person_type=person_type
+            )
+
+            # Draw bounding box
+            x1, y1, x2, y2 = tracked.bbox
+
+            # Color based on type
+            if person_type == "staff":
+                color = (255, 165, 0)  # Orange
+            else:
+                color = (0, 255, 0)  # Green
+
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+            # Label
+            label = f"{track_id} [{person_type}]"
+            cv2.putText(frame, label, (x1, y1 - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+            # Center dot
+            cx, cy = tracked.centroid
+            cv2.circle(frame, (cx, cy), 5, color, -1)
+
+        # Encode frame as JPEG
+        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        frame_bytes = buffer.tobytes()
+
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+        time.sleep(0.033)  # ~30 FPS
+
+
+@app.get("/api/video")
+def video_feed():
+    """Stream video with CV detections as MJPEG."""
+    return StreamingResponse(
+        generate_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+
+@app.post("/api/video/start")
+def start_video():
+    """Start video processing."""
+    init_cv_components()
+    return {"success": True, "message": "Video processing started"}
+
+
+@app.post("/api/video/stop")
+def stop_video():
+    """Stop video processing."""
+    # Note: The stream will stop when client disconnects
+    return {"success": True, "message": "Video processing stopped"}
 
 
 # ============================================================================
