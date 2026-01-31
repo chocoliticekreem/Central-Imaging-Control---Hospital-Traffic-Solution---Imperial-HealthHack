@@ -61,3 +61,8 @@ Thumbs.db
 # Database (local dev)
 *.db
 *.sqlite3
+
+# ML Models
+*.pt
+*.pth
+*.onnx
