@@ -1,40 +1,22 @@
 """
 State Manager
 =============
-The CENTRAL HUB of the system. All entity state changes flow through here.
-Both the CV pipeline and demo mode buttons update state via this manager.
+Central hub for tracking people and linking them to patient records.
 """
 
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from threading import Lock
-import sys
-import os
 
-# Add parent to path for config import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-from .entities import Patient, Staff, Interaction
-from .scoring import calculate_priority
-
-# Import config - handle both direct run and module import
-try:
-    from aegis_flow import config
-except ImportError:
-    try:
-        import config
-    except ImportError:
-        # Fallback defaults if config not found
-        class config:
-            SAFE_THRESHOLD = 300
-            AT_RISK_THRESHOLD = 900
-            GHOST_TIMEOUT = 30
+from .entities import TrackedPerson, PatientRecord, CameraZone
+from .elr_mock import ELRMock
+from .floor_plan import FloorPlan
 
 
 class StateManager:
     """
-    Singleton state manager for all tracked entities.
-    Thread-safe: Uses locks for concurrent access from CV and UI threads.
+    Manages all tracked people and their links to patient records.
+    Thread-safe singleton.
     """
 
     _instance = None
@@ -50,240 +32,212 @@ class StateManager:
             return
         self._initialized = True
 
-        self._patients: Dict[str, Patient] = {}
-        self._staff: Dict[str, Staff] = {}
-        self._interactions: List[Interaction] = []
+        # Tracked people from cameras
+        self._tracked: Dict[str, TrackedPerson] = {}
+
+        # Patient tagging: track_id -> patient_id
+        self._tags: Dict[str, str] = {}
+
+        # ELR system (patient records)
+        self.elr = ELRMock()
+
+        # Floor plan
+        self.floor_plan = FloorPlan()
+
+        # Thread safety
         self._lock = Lock()
+
+        # Ghost timeout (seconds)
+        self.ghost_timeout = 30
 
     @classmethod
     def reset_instance(cls):
-        """Reset the singleton (useful for testing)."""
+        """Reset singleton (for testing)."""
         cls._instance = None
 
     # =========================================================================
-    # ENTITY UPDATES (called by CV pipeline or demo mode)
+    # TRACKING UPDATES (called by CV pipeline)
     # =========================================================================
 
-    def update_patient(
+    def update_tracked(
         self,
-        patient_id: str,
+        track_id: str,
+        camera_id: str,
         position: tuple[int, int],
-        bbox: tuple[int, int, int, int] = (0, 0, 0, 0)
-    ) -> Patient:
-        """Update or create a patient entity."""
+        person_type: str = "unknown"
+    ) -> TrackedPerson:
+        """
+        Update or create a tracked person from camera detection.
+        Automatically converts to map coordinates if zone is configured.
+        """
+        with self._lock:
+            # Convert to map coordinates
+            map_pos = self.floor_plan.camera_to_map(camera_id, position[0], position[1])
+
+            if track_id in self._tracked:
+                # Update existing
+                person = self._tracked[track_id]
+                person.position = position
+                person.map_position = map_pos
+                person.person_type = person_type
+                person.last_seen = time.time()
+            else:
+                # Create new
+                person = TrackedPerson(
+                    track_id=track_id,
+                    position=position,
+                    map_position=map_pos,
+                    person_type=person_type
+                )
+                self._tracked[track_id] = person
+
+            # Restore patient tag if exists
+            if track_id in self._tags:
+                person.patient_id = self._tags[track_id]
+
+            return person
+
+    def remove_tracked(self, track_id: str):
+        """Remove a tracked person (lost tracking)."""
+        with self._lock:
+            if track_id in self._tracked:
+                del self._tracked[track_id]
+
+    def cleanup_stale(self):
+        """Remove tracked people not seen recently."""
         with self._lock:
             now = time.time()
-
-            if patient_id in self._patients:
-                # Update existing patient
-                patient = self._patients[patient_id]
-                patient.position = position
-                patient.bbox = bbox
-                patient.last_seen = now
-                patient.is_ghost = False
-            else:
-                # Create new patient
-                patient = Patient(
-                    id=patient_id,
-                    position=position,
-                    bbox=bbox,
-                    last_seen=now,
-                    last_interaction=now  # New patients start with fresh timer
-                )
-                self._patients[patient_id] = patient
-
-            self._update_patient_states()
-            return patient
-
-    def update_staff(
-        self,
-        staff_id: str,
-        position: tuple[int, int],
-        bbox: tuple[int, int, int, int] = (0, 0, 0, 0)
-    ) -> Staff:
-        """Update or create a staff entity."""
-        with self._lock:
-            now = time.time()
-
-            if staff_id in self._staff:
-                # Update existing staff
-                staff = self._staff[staff_id]
-                staff.position = position
-                staff.bbox = bbox
-                staff.last_seen = now
-            else:
-                # Create new staff
-                staff = Staff(
-                    id=staff_id,
-                    position=position,
-                    bbox=bbox,
-                    last_seen=now
-                )
-                self._staff[staff_id] = staff
-
-            return staff
-
-    def mark_patient_missing(self, patient_id: str):
-        """Mark a patient as missing (not detected in current frame)."""
-        with self._lock:
-            if patient_id in self._patients:
-                self._patients[patient_id].is_ghost = True
-
-    def mark_staff_missing(self, staff_id: str):
-        """Mark a staff member as missing."""
-        with self._lock:
-            # Staff don't become ghosts, they just get cleaned up
-            pass
+            stale = [
+                tid for tid, person in self._tracked.items()
+                if (now - person.last_seen) > self.ghost_timeout
+            ]
+            for tid in stale:
+                del self._tracked[tid]
 
     # =========================================================================
-    # INTERACTION TRACKING
+    # PATIENT TAGGING (nurse links tracked person to patient record)
     # =========================================================================
 
-    def record_interaction(self, staff_id: str, patient_id: str, duration: float = 0.0):
-        """Record a staff-patient interaction."""
+    def tag_patient(self, track_id: str, patient_id: str) -> bool:
+        """
+        Link a tracked person to a patient record.
+        Returns True if successful.
+        """
         with self._lock:
-            # Create interaction record
-            interaction = Interaction(
-                staff_id=staff_id,
-                patient_id=patient_id,
-                duration=duration
-            )
-            self._interactions.append(interaction)
+            if track_id not in self._tracked:
+                return False
 
-            # Update patient's last interaction time and state
-            if patient_id in self._patients:
-                self._patients[patient_id].last_interaction = time.time()
-                self._patients[patient_id].state = "safe"
+            # Verify patient exists in ELR
+            if not self.elr.get_patient(patient_id):
+                return False
+
+            # Create the link
+            self._tags[track_id] = patient_id
+            self._tracked[track_id].patient_id = patient_id
+            return True
+
+    def untag_patient(self, track_id: str):
+        """Remove patient link from a tracked person."""
+        with self._lock:
+            if track_id in self._tags:
+                del self._tags[track_id]
+            if track_id in self._tracked:
+                self._tracked[track_id].patient_id = None
+
+    def get_tag(self, track_id: str) -> Optional[str]:
+        """Get patient_id for a tracked person."""
+        return self._tags.get(track_id)
 
     # =========================================================================
-    # STATE MANAGEMENT (internal, no lock needed - called within locked context)
+    # QUERIES
     # =========================================================================
 
-    def _update_patient_states(self):
-        """Update all patient states based on time since last interaction."""
-        now = time.time()
-
-        for patient in self._patients.values():
-            time_since = now - patient.last_interaction
-
-            if time_since < config.SAFE_THRESHOLD:
-                patient.state = "safe"
-            elif time_since < config.AT_RISK_THRESHOLD:
-                patient.state = "at_risk"
-            else:
-                patient.state = "critical"
-
-    def _cleanup_ghosts(self):
-        """Remove ghost entities that exceeded GHOST_TIMEOUT."""
-        now = time.time()
-
-        # Find patients to remove
-        patients_to_remove = [
-            pid for pid, patient in self._patients.items()
-            if patient.is_ghost and (now - patient.last_seen) > config.GHOST_TIMEOUT
-        ]
-        for pid in patients_to_remove:
-            del self._patients[pid]
-
-        # Find staff to remove
-        staff_to_remove = [
-            sid for sid, staff in self._staff.items()
-            if (now - staff.last_seen) > config.GHOST_TIMEOUT
-        ]
-        for sid in staff_to_remove:
-            del self._staff[sid]
-
-    # =========================================================================
-    # QUERIES (called by dashboard)
-    # =========================================================================
-
-    def get_priority_list(self) -> List[Patient]:
-        """Get all patients sorted by priority (highest first)."""
+    def get_all_tracked(self) -> List[TrackedPerson]:
+        """Get all currently tracked people."""
         with self._lock:
-            self._update_patient_states()
-            self._cleanup_ghosts()
+            self.cleanup_stale()
+            return list(self._tracked.values())
 
-            patients = list(self._patients.values())
-            patients.sort(key=lambda p: calculate_priority(p), reverse=True)
-            return patients
-
-    def get_all_patients(self) -> Dict[str, Patient]:
-        """Get all patients as a dict."""
+    def get_tracked_patients(self) -> List[Tuple[TrackedPerson, PatientRecord]]:
+        """Get all tracked people who are tagged as patients, with their records."""
         with self._lock:
-            return dict(self._patients)
+            result = []
+            for person in self._tracked.values():
+                if person.patient_id:
+                    record = self.elr.get_patient(person.patient_id)
+                    if record:
+                        result.append((person, record))
+            return result
 
-    def get_all_staff(self) -> List[Staff]:
-        """Return all tracked staff."""
+    def get_critical_locations(self) -> List[Tuple[TrackedPerson, PatientRecord]]:
+        """Get locations of critical/urgent patients."""
         with self._lock:
-            return list(self._staff.values())
+            result = []
+            for person in self._tracked.values():
+                if person.patient_id:
+                    record = self.elr.get_patient(person.patient_id)
+                    if record and record.status in ("critical", "urgent"):
+                        result.append((person, record))
+            return result
 
-    def get_patient(self, patient_id: str) -> Optional[Patient]:
-        """Get a specific patient by ID."""
+    def get_untagged(self) -> List[TrackedPerson]:
+        """Get tracked people not yet tagged as patients."""
         with self._lock:
-            return self._patients.get(patient_id)
-
-    def get_recent_interactions(self, limit: int = 10) -> List[Interaction]:
-        """Get the most recent interactions."""
-        with self._lock:
-            return self._interactions[-limit:]
+            return [p for p in self._tracked.values() if not p.is_tagged]
 
     def get_stats(self) -> dict:
         """Get summary statistics."""
         with self._lock:
-            patients = list(self._patients.values())
+            tracked = list(self._tracked.values())
+            tagged = [p for p in tracked if p.is_tagged]
+
+            critical_locs = self.get_critical_locations()
+
             return {
-                "total_patients": len(patients),
-                "total_staff": len(self._staff),
-                "safe_count": sum(1 for p in patients if p.state == "safe"),
-                "at_risk_count": sum(1 for p in patients if p.state == "at_risk"),
-                "critical_count": sum(1 for p in patients if p.state == "critical"),
-                "total_interactions": len(self._interactions)
+                "total_tracked": len(tracked),
+                "tagged_patients": len(tagged),
+                "untagged": len(tracked) - len(tagged),
+                "staff_count": sum(1 for p in tracked if p.person_type == "staff"),
+                "critical_located": len([x for x in critical_locs if x[1].status == "critical"]),
+                "urgent_located": len([x for x in critical_locs if x[1].status == "urgent"]),
             }
 
     # =========================================================================
-    # DEMO MODE HELPERS
+    # DEMO HELPERS
     # =========================================================================
 
-    def demo_add_patient(self, position: tuple[int, int] = (400, 300)) -> Patient:
-        """Demo mode: Manually add a patient with generated ID."""
-        patient = Patient.create(position=position)
-        with self._lock:
-            self._patients[patient.id] = patient
-            return patient
-
-    def demo_add_staff(self, position: tuple[int, int] = (200, 300)) -> Staff:
-        """Demo mode: Manually add a staff member with generated ID."""
-        staff = Staff.create(position=position)
-        with self._lock:
-            self._staff[staff.id] = staff
-            return staff
-
-    def demo_simulate_neglect(self, patient_id: str, minutes: float):
-        """Demo mode: Fast-forward a patient's neglect time."""
-        with self._lock:
-            if patient_id in self._patients:
-                # Subtract time to simulate neglect
-                self._patients[patient_id].last_interaction -= (minutes * 60)
-                self._update_patient_states()
-
-    def demo_trigger_interaction(self, patient_id: str):
-        """Demo mode: Simulate a staff interaction with patient."""
-        self.record_interaction(
-            staff_id="DEMO_STAFF",
-            patient_id=patient_id,
-            duration=5.0
-        )
+    def demo_add_person(
+        self,
+        camera_id: str = "cam_corridor",
+        position: tuple[int, int] = (640, 360),
+        person_type: str = "patient"
+    ) -> TrackedPerson:
+        """Demo: Add a tracked person manually."""
+        import uuid
+        track_id = f"T-{uuid.uuid4().hex[:4].upper()}"
+        return self.update_tracked(track_id, camera_id, position, person_type)
 
     def demo_clear_all(self):
-        """Demo mode: Clear all entities for reset."""
+        """Demo: Clear all tracked people."""
         with self._lock:
-            self._patients.clear()
-            self._staff.clear()
-            self._interactions.clear()
+            self._tracked.clear()
+            self._tags.clear()
 
-    def demo_set_patient_state(self, patient_id: str, state: str):
-        """Demo mode: Directly set a patient's state."""
-        with self._lock:
-            if patient_id in self._patients:
-                if state in ("safe", "at_risk", "critical"):
-                    self._patients[patient_id].state = state
+    def demo_setup(self):
+        """Demo: Set up sample data for presentation."""
+        # Set up floor plan zones
+        self.floor_plan.setup_demo_zones()
+        self.floor_plan.create_demo_floor_plan()
+
+        # Add some tracked people
+        p1 = self.demo_add_person("cam_corridor", (200, 300), "patient")
+        p2 = self.demo_add_person("cam_corridor", (400, 500), "patient")
+        p3 = self.demo_add_person("cam_waiting", (600, 400), "patient")
+        p4 = self.demo_add_person("cam_waiting", (300, 200), "staff")
+        p5 = self.demo_add_person("cam_triage", (640, 300), "patient")
+
+        # Tag some as patients from ELR
+        self.tag_patient(p1.track_id, "P-1001")  # Critical
+        self.tag_patient(p2.track_id, "P-1002")  # Urgent
+        self.tag_patient(p3.track_id, "P-1004")  # Stable
+        self.tag_patient(p5.track_id, "P-1006")  # Critical

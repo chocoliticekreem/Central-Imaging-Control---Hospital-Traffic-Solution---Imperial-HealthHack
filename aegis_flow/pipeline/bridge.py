@@ -1,146 +1,89 @@
 """
 Pipeline Bridge
 ===============
-OWNER: Shared (Everyone should understand this)
-DEPENDENCIES: multiprocessing
-
-Connects the heavy CV processing (runs in separate process) to the
-lightweight UI (Streamlit). Uses multiprocessing.Queue for thread-safe
-communication.
-
-Why separate processes?
-- CV/YOLO is CPU/GPU intensive
-- Streamlit needs to stay responsive
-- Queue decouples the two, preventing lag
-
-Message flow:
-  CV Process --> Queue --> UI Process --> StateManager --> Dashboard
-
-TODO for implementer:
-1. Define message types and data format
-2. Implement send/receive with timeout handling
-3. Consider adding frame buffer for smooth video display
+Connects CV processing to UI via multiprocessing Queue.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from typing import List, Optional
 from multiprocessing import Queue
-import base64
+from queue import Empty, Full
 import time
+import cv2
+import numpy as np
 
 
 @dataclass
 class EntityUpdate:
     """Update for a single tracked entity."""
     entity_id: str
+    camera_id: str
     entity_type: str  # "staff" or "patient"
-    position: tuple[int, int]
-    bbox: tuple[int, int, int, int]
-
-
-@dataclass
-class InteractionUpdate:
-    """Notification of a detected interaction."""
-    staff_id: str
-    patient_id: str
-    duration: float
+    position: tuple[int, int]  # camera pixels
+    bbox: tuple[int, int, int, int] = (0, 0, 0, 0)
 
 
 @dataclass
 class PipelineMessage:
-    """
-    Message sent from CV process to UI process.
-
-    Contains all updates from a single frame processing cycle.
-    """
+    """Message sent from CV process to UI process."""
     timestamp: float = field(default_factory=time.time)
+    camera_id: str = ""
     entities: List[EntityUpdate] = field(default_factory=list)
-    interactions: List[InteractionUpdate] = field(default_factory=list)
-    frame_jpeg: Optional[bytes] = None  # JPEG-encoded frame for display
-    fps: float = 0.0  # Current processing FPS
+    frame_jpeg: Optional[bytes] = None
+    fps: float = 0.0
 
 
 class PipelineBridge:
     """
     Bridge for CV-to-UI communication.
-
-    Usage (CV side):
-        bridge = PipelineBridge()
-        # In processing loop:
-        bridge.send(message)
-
-    Usage (UI side):
-        bridge = PipelineBridge(existing_queue)
-        message = bridge.receive()
-        if message:
-            update_state_manager(message)
-
-    TODO for implementer:
-    1. __init__: Create or accept Queue
-    2. send(): Non-blocking put with overflow handling
-    3. receive(): Non-blocking get with timeout
-    4. encode_frame(): Convert numpy array to JPEG bytes
-    5. decode_frame(): Convert JPEG bytes back to numpy array
     """
 
     def __init__(self, queue: Optional[Queue] = None, max_size: int = 10):
-        """
-        Args:
-            queue: Existing queue to use, or None to create new
-            max_size: Maximum messages in queue before dropping old ones
-        """
         self.queue = queue if queue else Queue(maxsize=max_size)
         self.max_size = max_size
 
     def send(self, message: PipelineMessage):
-        """
-        Send a message to the UI process.
-
-        TODO:
-        - If queue is full, drop oldest message first
-        - Put new message in queue
-        - Handle any exceptions gracefully
-        """
-        # TODO: Implement
-        pass
+        """Send a message to the UI process (non-blocking)."""
+        try:
+            # Drop oldest if full
+            if self.queue.full():
+                try:
+                    self.queue.get_nowait()
+                except Empty:
+                    pass
+            self.queue.put_nowait(message)
+        except Full:
+            pass  # Skip this frame
 
     def receive(self, timeout: float = 0.1) -> Optional[PipelineMessage]:
-        """
-        Receive a message from the CV process.
+        """Receive a message from the CV process."""
+        try:
+            return self.queue.get(timeout=timeout)
+        except Empty:
+            return None
 
-        Args:
-            timeout: How long to wait (seconds)
-
-        Returns:
-            PipelineMessage if available, None if timeout
-
-        TODO:
-        - Try to get from queue with timeout
-        - Return None if queue.Empty exception
-        """
-        # TODO: Implement
-        pass
-
-    @staticmethod
-    def encode_frame(frame) -> bytes:
-        """
-        Encode a numpy BGR frame to JPEG bytes.
-
-        TODO:
-        - Use cv2.imencode('.jpg', frame)
-        - Return the bytes
-        """
-        # TODO: Implement
-        pass
+    def receive_latest(self) -> Optional[PipelineMessage]:
+        """Receive the most recent message, discarding older ones."""
+        message = None
+        try:
+            while True:
+                message = self.queue.get_nowait()
+        except Empty:
+            pass
+        return message
 
     @staticmethod
-    def decode_frame(jpeg_bytes: bytes):
-        """
-        Decode JPEG bytes back to numpy BGR frame.
+    def encode_frame(frame: np.ndarray) -> bytes:
+        """Encode a numpy BGR frame to JPEG bytes."""
+        if frame is None:
+            return b''
+        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return buffer.tobytes()
 
-        TODO:
-        - Use cv2.imdecode()
-        - Return numpy array
-        """
-        # TODO: Implement
-        pass
+    @staticmethod
+    def decode_frame(jpeg_bytes: bytes) -> Optional[np.ndarray]:
+        """Decode JPEG bytes back to numpy BGR frame."""
+        if not jpeg_bytes:
+            return None
+        arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+        return cv2.imdecode(arr, cv2.IMREAD_COLOR)

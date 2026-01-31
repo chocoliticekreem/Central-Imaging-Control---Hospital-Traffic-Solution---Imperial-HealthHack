@@ -1,167 +1,138 @@
 """
 CV Processor
 ============
-OWNER: Vision Team (Person B, C)
-DEPENDENCIES: All vision modules, bridge.py, config.py
-
-Main computer vision processing loop. Runs in a separate process
-to keep the UI responsive.
+Main computer vision processing loop. Runs in a separate process.
 
 Pipeline per frame:
 1. Capture frame from webcam
 2. Detect people (YOLO)
 3. Track people (assign persistent IDs)
 4. Classify as staff/patient (uniform color)
-5. Detect interactions (proximity)
-6. Send updates to UI via bridge
-
-TODO for implementer:
-1. Set up webcam capture
-2. Initialize all vision components
-3. Implement main processing loop
-4. Handle graceful shutdown
+5. Send updates to UI via bridge
 """
 
 import time
 from multiprocessing import Process, Queue
-import cv2
-import numpy as np
+import sys
+import os
 
-from .bridge import PipelineBridge, PipelineMessage, EntityUpdate, InteractionUpdate
-from ..vision import PersonDetector, CentroidTracker, UniformClassifier, InteractionDetector
-import config
+# Add parent to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from .bridge import PipelineBridge, PipelineMessage, EntityUpdate
+
+# These imports will work once vision modules are implemented
+# from ..vision import PersonDetector, CentroidTracker, UniformClassifier
+
+try:
+    from aegis_flow import config
+except ImportError:
+    import config
 
 
 class CVProcessor:
     """
     Main CV processing pipeline.
-
     Runs in a separate process, sends updates via Queue.
-
-    Usage:
-        queue = Queue()
-        processor = CVProcessor(queue)
-        processor.start()  # Starts separate process
-
-        # In UI process:
-        message = queue.get()
-
-        # When done:
-        processor.stop()
-
-    TODO for implementer:
-    1. __init__: Store queue, set running flag
-    2. start(): Spawn process running _run()
-    3. stop(): Set flag to stop, join process
-    4. _run(): Main loop - capture, detect, track, classify, send
-    5. _process_frame(): Single frame processing logic
     """
 
-    def __init__(self, queue: Queue):
-        """
-        Args:
-            queue: Queue to send messages to UI
-        """
+    def __init__(self, queue: Queue, camera_id: str = "cam_corridor"):
         self.queue = queue
         self.bridge = PipelineBridge(queue)
+        self.camera_id = camera_id
         self.process: Process = None
         self._running = False
 
     def start(self):
-        """
-        Start the CV processing in a separate process.
-
-        TODO:
-        - Set _running = True
-        - Create Process targeting _run
-        - Start the process
-        """
-        # TODO: Implement
-        pass
+        """Start CV processing in a separate process."""
+        self._running = True
+        self.process = Process(target=self._run)
+        self.process.start()
 
     def stop(self):
-        """
-        Stop the CV processing.
-
-        TODO:
-        - Set _running = False
-        - Join the process with timeout
-        - Terminate if still running
-        """
-        # TODO: Implement
-        pass
+        """Stop CV processing."""
+        self._running = False
+        if self.process:
+            self.process.join(timeout=2)
+            if self.process.is_alive():
+                self.process.terminate()
 
     def _run(self):
         """
-        Main processing loop (runs in separate process).
+        Main processing loop.
 
-        TODO:
-        1. Initialize components:
-           - cv2.VideoCapture(config.CAMERA_INDEX)
-           - PersonDetector()
-           - CentroidTracker()
-           - UniformClassifier()
-           - InteractionDetector()
-
-        2. Main loop while self._running:
-           - Read frame from camera
-           - If frame is None, continue
-           - Process frame
-           - Calculate FPS
-           - Send message via bridge
-           - Small sleep to control rate
-
-        3. Cleanup:
-           - Release camera
+        TODO for implementer:
+        1. Initialize cv2.VideoCapture
+        2. Initialize PersonDetector, CentroidTracker, UniformClassifier
+        3. Loop: capture → detect → track → classify → send
         """
-        # TODO: Implement
-        pass
+        import cv2
+        import numpy as np
 
-    def _process_frame(
-        self,
-        frame: np.ndarray,
-        detector: PersonDetector,
-        tracker: CentroidTracker,
-        classifier: UniformClassifier,
-        interaction_detector: InteractionDetector
-    ) -> PipelineMessage:
-        """
-        Process a single frame through the full pipeline.
+        # Initialize camera
+        cap = cv2.VideoCapture(config.CAMERA_INDEX)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
 
-        Args:
-            frame: BGR image from webcam
-            detector: Person detector instance
-            tracker: Centroid tracker instance
-            classifier: Uniform classifier instance
-            interaction_detector: Interaction detector instance
+        # TODO: Initialize vision components when implemented
+        # detector = PersonDetector()
+        # tracker = CentroidTracker()
+        # classifier = UniformClassifier()
 
-        Returns:
-            PipelineMessage with all updates
+        fps_time = time.time()
+        frame_count = 0
 
-        TODO:
-        1. Detect people: detections = detector.detect(frame)
-        2. Track people: tracks = tracker.update(detections)
-        3. Classify each tracked person:
-           - For each track, get bbox
-           - person_type = classifier.classify(frame, bbox)
-           - Create EntityUpdate
-        4. Separate staff and patient tracks
-        5. Detect interactions: interactions = interaction_detector.update(staff, patients)
-        6. Encode frame to JPEG
-        7. Build and return PipelineMessage
-        """
-        # TODO: Implement
-        message = PipelineMessage()
-        return message
+        while self._running:
+            ret, frame = cap.read()
+            if not ret:
+                time.sleep(0.1)
+                continue
+
+            # TODO: Replace with actual detection when implemented
+            # detections = detector.detect(frame)
+            # tracks = tracker.update(detections)
+            # entities = []
+            # for track_id, tracked in tracks.items():
+            #     person_type = classifier.classify(frame, tracked.bbox)
+            #     entities.append(EntityUpdate(
+            #         entity_id=track_id,
+            #         camera_id=self.camera_id,
+            #         entity_type=person_type,
+            #         position=tracked.centroid,
+            #         bbox=tracked.bbox
+            #     ))
+
+            # For now, send empty frame
+            entities = []
+
+            # Calculate FPS
+            frame_count += 1
+            if time.time() - fps_time >= 1.0:
+                fps = frame_count / (time.time() - fps_time)
+                frame_count = 0
+                fps_time = time.time()
+            else:
+                fps = 0
+
+            # Encode frame
+            frame_bytes = PipelineBridge.encode_frame(frame)
+
+            # Send message
+            message = PipelineMessage(
+                entities=entities,
+                frame_jpeg=frame_bytes,
+                fps=fps,
+                camera_id=self.camera_id
+            )
+            self.bridge.send(message)
+
+            time.sleep(0.033)  # ~30 FPS cap
+
+        cap.release()
 
 
-def run_processor(queue: Queue):
-    """
-    Entry point for processor subprocess.
-
-    This function is called when starting the CV process.
-    Useful for multiprocessing.Process(target=run_processor, args=(queue,))
-    """
-    processor = CVProcessor(queue)
+def run_processor(queue: Queue, camera_id: str = "cam_corridor"):
+    """Entry point for subprocess."""
+    processor = CVProcessor(queue, camera_id)
     processor._running = True
     processor._run()

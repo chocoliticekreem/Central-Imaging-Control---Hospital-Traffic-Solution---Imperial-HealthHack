@@ -4,14 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Aegis Flow** - A spatial intelligence platform for hospital emergency departments. Uses computer vision to track patients and staff, calculate "neglect time" (time since last staff interaction), and present a priority-ranked worklist.
+**Aegis Flow** - A patient location system for hospital emergency departments. Uses CCTV/webcam to track people and show their locations on a floor plan map. Nurses can see WHERE critical patients are, not just WHO they are.
+
+**Key insight:** NHS ELR tells nurses WHO needs help. Aegis Flow tells them WHERE to go.
 
 ## Tech Stack
 
 - **Backend**: Python 3.10+
 - **CV Pipeline**: YOLOv8 (ultralytics), OpenCV
-- **UI**: Streamlit
-- **IPC**: multiprocessing.Queue (CV process → UI process)
+- **UI**: Streamlit with floor plan map
+- **Patient Data**: Mock ELR feed (JSON)
 
 ## Commands
 
@@ -19,53 +21,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install dependencies
 pip install -r aegis_flow/requirements.txt
 
-# Run dashboard only (for UI development)
+# Run dashboard (UI development)
 streamlit run aegis_flow/interface/dashboard.py
 
-# Run full system (CV + dashboard)
+# Run full system
 python aegis_flow/main.py
 ```
 
 ## Architecture
 
 ```
-CV Process (heavy)          UI Process (light)
-┌─────────────────┐         ┌─────────────────┐
-│ Webcam Capture  │         │                 │
-│       ↓         │         │  StateManager   │←── Demo Buttons
-│ YOLO Detection  │         │  (Central Hub)  │
-│       ↓         │  Queue  │       ↓         │
-│ Centroid Track  │────────▶│ Priority List   │
-│       ↓         │         │       ↓         │
-│ Color Classify  │         │  Streamlit UI   │
-│       ↓         │         │                 │
-│ Interaction Det │         └─────────────────┘
-└─────────────────┘
+Camera → Detect → Track → Show on Map
+                              ↓
+         Nurse clicks dot → Assigns Patient ID (from ELR)
+                              ↓
+         ELR Feed (JSON) → Colors dot by status
 ```
 
-## Module Ownership
+## Core Concepts
 
-| Module | Path | Purpose |
-|--------|------|---------|
-| Core | `aegis_flow/core/` | Entities, StateManager, scoring |
-| Vision | `aegis_flow/vision/` | Detection, tracking, classification |
-| Pipeline | `aegis_flow/pipeline/` | CV↔UI bridge, processor loop |
-| Interface | `aegis_flow/interface/` | Streamlit dashboard |
+1. **TrackedPerson**: Someone detected by camera (has track_id, position)
+2. **PatientRecord**: Patient info from ELR (has patient_id, status, name)
+3. **Tagging**: Nurse links TrackedPerson → PatientRecord by clicking on map
+4. **CameraZone**: Maps camera pixels to floor plan coordinates
+
+## Status Colors
+
+- Red: Critical
+- Orange: Urgent
+- Yellow: Standard
+- Green: Stable
 
 ## Key Files
 
-- `config.py` - All tunable parameters (thresholds, colors, etc.)
-- `core/state_manager.py` - Central state hub, all updates flow through here
-- `vision/detector.py` - YOLO wrapper for person detection
-- `interface/dashboard.py` - Main Streamlit UI
-
-## State Transitions
-
-Patient states based on `time_since_last_interaction`:
-- **safe** (green): < 5 min
-- **at_risk** (yellow): 5-15 min
-- **critical** (red): > 15 min
-
-## Demo Mode
-
-Demo buttons inject events directly into StateManager, bypassing CV pipeline. Useful for reliable hackathon presentations.
+| File | Purpose |
+|------|---------|
+| `core/state_manager.py` | Central hub - tracking + tagging |
+| `core/elr_mock.py` | Mock NHS patient feed |
+| `core/floor_plan.py` | Map image + camera zones |
+| `vision/detector.py` | YOLO person detection |
+| `vision/tracker.py` | Persistent ID tracking |
+| `vision/classifier.py` | Staff vs patient by uniform |
+| `interface/dashboard.py` | Streamlit map UI |

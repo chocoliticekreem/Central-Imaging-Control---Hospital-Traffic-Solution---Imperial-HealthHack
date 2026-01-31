@@ -1,6 +1,11 @@
-from .detector import PersonDetector
-from .tracker import CentroidTracker
+from .detector import PersonDetector, Detection
+from .tracker import CentroidTracker, TrackedPerson
 from .classifier import UniformClassifier
-from .interaction import InteractionDetector
 
-__all__ = ["PersonDetector", "CentroidTracker", "UniformClassifier", "InteractionDetector"]
+__all__ = [
+    "PersonDetector",
+    "Detection",
+    "CentroidTracker",
+    "TrackedPerson",
+    "UniformClassifier"
+]
