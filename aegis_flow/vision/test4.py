@@ -55,7 +55,6 @@ MATCH_THRESHOLD = 0.20
 # If it thinks two different people are the same person: LOWER the number (e.g., 0.20 or 0.15). This makes the model stricter.
 # If it thinks the same person is a new patient: RAISE the number (e.g., 0.30). This makes the model more lenient.
 
-
 def get_embedding(image_crop):
     img_tensor = preprocess(image_crop).unsqueeze(0).to(device)
     with torch.no_grad():

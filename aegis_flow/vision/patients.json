@@ -1,0 +1,82 @@
+[
+    {
+        "epr_id": "A101",
+        "name": "Joseph Wong",
+        "age": 34,
+        "condition": "Cardiac Arrhythmia",
+        "triage_score": "Red (Urgent)",
+        "notes": "Monitor heart rate constantly. History of AFib."
+    },
+    {
+        "epr_id": "B205",
+        "name": "Anson Woo",
+        "age": 52,
+        "condition": "Mild Concussion",
+        "triage_score": "Yellow (Observation)",
+        "notes": "Check pupil response every hour. Patient reports dizziness."
+    },
+    {
+        "epr_id": "C309",
+        "name": "Harvey Fung",
+        "age": 21,
+        "condition": "Fractured Wrist",
+        "triage_score": "Green (Stable)",
+        "notes": "Awaiting X-Ray results. Pain managed with paracetamol."
+    },
+    {
+        "epr_id": "D412",
+        "name": "Christopher Ricketts",
+        "age": 68,
+        "condition": "Severe Dehydration",
+        "triage_score": "Yellow (Observation)",
+        "notes": "IV fluids started. Monitor urine output."
+    },
+    {
+        "epr_id": "E523",
+        "name": "Charles Huyghe",
+        "age": 45,
+        "condition": "Chest Pains",
+        "triage_score": "Red (Urgent)",
+        "notes": "ECG scheduled immediately. Possible angina."
+    },
+    {
+        "epr_id": "F634",
+        "name": "Korede Asani",
+        "age": 29,
+        "condition": "Allergic Reaction",
+        "triage_score": "Yellow (Observation)",
+        "notes": "Administered antihistamines. Monitor breathing."
+    },
+    {
+        "epr_id": "G745",
+        "name": "Barry Allen",
+        "age": 88,
+        "condition": "Hip Pain (Fall)",
+        "triage_score": "Yellow (Observation)",
+        "notes": "Fall risk. Needs assistance for mobility."
+    },
+    {
+        "epr_id": "H856",
+        "name": "Wade Wilson",
+        "age": 6,
+        "condition": "High Fever (39.5°C)",
+        "triage_score": "Red (Urgent)",
+        "notes": "Rapid cooling measures. Screen for infection."
+    },
+    {
+        "epr_id": "I967",
+        "name": "Clark Kent",
+        "age": 19,
+        "condition": "Sprained Ankle",
+        "triage_score": "Green (Stable)",
+        "notes": "Ice pack applied. Needs crutches."
+    },
+    {
+        "epr_id": "J078",
+        "name": "Lebron James",
+        "age": 31,
+        "condition": "Migraine",
+        "triage_score": "Green (Stable)",
+        "notes": "Light sensitivity. Resting in quiet area."
+    }
+]
