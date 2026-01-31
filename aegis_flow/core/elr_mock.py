@@ -1,36 +1,132 @@
 """
 Mock ELR (Electronic Locating Record) Feed
 ==========================================
-Simulates NHS ELR system providing patient status updates.
-In production, this would be replaced with actual NHS API integration.
+Simulates NHS ELR system with NEWS2 scores.
 """
 
-import json
 import time
-import random
 from typing import Dict, List, Optional
-from dataclasses import asdict
-
-from .entities import PatientRecord, ELRStatus
+from .entities import PatientRecord
 
 
-# Sample patient data for demo
-DEMO_PATIENTS = [
-    PatientRecord("P-1001", "James Wilson", "critical", "Chest pain", 45),
-    PatientRecord("P-1002", "Sarah Connor", "urgent", "Difficulty breathing", 32),
-    PatientRecord("P-1003", "Michael Brown", "standard", "Abdominal pain", 28),
-    PatientRecord("P-1004", "Emma Thompson", "stable", "Minor laceration", 15),
-    PatientRecord("P-1005", "Robert Chen", "urgent", "Head injury", 52),
-    PatientRecord("P-1006", "Lisa Anderson", "critical", "Stroke symptoms", 12),
-    PatientRecord("P-1007", "David Martinez", "standard", "Back pain", 67),
-    PatientRecord("P-1008", "Jennifer Lee", "stable", "Sprained ankle", 23),
-]
+def create_demo_patients() -> List[PatientRecord]:
+    """Create demo patients with realistic NEWS2 data."""
+    now = time.time()
+
+    patients = [
+        # HIGH RISK (NEWS2 >= 7)
+        PatientRecord(
+            patient_id="P-1001",
+            name="James Wilson",
+            chief_complaint="Chest pain, SOB",
+            arrival_time=now - 2700,  # 45 min ago
+            respiratory_rate=28,       # High
+            oxygen_saturation=89,      # Low
+            systolic_bp=95,            # Low
+            pulse=125,                 # High
+            temperature=38.5,
+            consciousness="Alert"
+        ),
+        PatientRecord(
+            patient_id="P-1006",
+            name="Lisa Anderson",
+            chief_complaint="Stroke symptoms",
+            arrival_time=now - 720,    # 12 min ago
+            respiratory_rate=22,
+            oxygen_saturation=92,
+            systolic_bp=185,           # High
+            pulse=88,
+            temperature=37.2,
+            consciousness="Voice"      # Reduced consciousness
+        ),
+
+        # MEDIUM RISK (NEWS2 5-6)
+        PatientRecord(
+            patient_id="P-1002",
+            name="Sarah Connor",
+            chief_complaint="Difficulty breathing",
+            arrival_time=now - 1920,   # 32 min ago
+            respiratory_rate=22,
+            oxygen_saturation=93,
+            systolic_bp=135,
+            pulse=105,
+            temperature=37.8,
+            consciousness="Alert"
+        ),
+        PatientRecord(
+            patient_id="P-1005",
+            name="Robert Chen",
+            chief_complaint="Head injury",
+            arrival_time=now - 3120,   # 52 min ago
+            respiratory_rate=18,
+            oxygen_saturation=95,
+            systolic_bp=145,
+            pulse=92,
+            temperature=37.0,
+            consciousness="Alert"
+        ),
+
+        # LOW RISK (NEWS2 0-4)
+        PatientRecord(
+            patient_id="P-1003",
+            name="Michael Brown",
+            chief_complaint="Abdominal pain",
+            arrival_time=now - 1680,   # 28 min ago
+            respiratory_rate=16,
+            oxygen_saturation=98,
+            systolic_bp=125,
+            pulse=78,
+            temperature=37.1,
+            consciousness="Alert"
+        ),
+        PatientRecord(
+            patient_id="P-1004",
+            name="Emma Thompson",
+            chief_complaint="Minor laceration",
+            arrival_time=now - 900,    # 15 min ago
+            respiratory_rate=14,
+            oxygen_saturation=99,
+            systolic_bp=118,
+            pulse=72,
+            temperature=36.8,
+            consciousness="Alert"
+        ),
+        PatientRecord(
+            patient_id="P-1007",
+            name="David Martinez",
+            chief_complaint="Back pain",
+            arrival_time=now - 4020,   # 67 min ago
+            respiratory_rate=15,
+            oxygen_saturation=97,
+            systolic_bp=130,
+            pulse=80,
+            temperature=36.9,
+            consciousness="Alert"
+        ),
+        PatientRecord(
+            patient_id="P-1008",
+            name="Jennifer Lee",
+            chief_complaint="Sprained ankle",
+            arrival_time=now - 1380,   # 23 min ago
+            respiratory_rate=14,
+            oxygen_saturation=99,
+            systolic_bp=115,
+            pulse=68,
+            temperature=36.7,
+            consciousness="Alert"
+        ),
+    ]
+
+    # Calculate NEWS2 scores
+    for p in patients:
+        p.calculate_news2()
+
+    return patients
 
 
 class ELRMock:
     """
     Mock ELR system for demo purposes.
-    Provides patient records and status updates.
     """
 
     def __init__(self):
@@ -39,7 +135,7 @@ class ELRMock:
 
     def _load_demo_data(self):
         """Load demo patients."""
-        for patient in DEMO_PATIENTS:
+        for patient in create_demo_patients():
             self._patients[patient.patient_id] = patient
 
     def get_patient(self, patient_id: str) -> Optional[PatientRecord]:
@@ -50,59 +146,79 @@ class ELRMock:
         """Get all patient records."""
         return list(self._patients.values())
 
-    def get_patients_by_status(self, status: ELRStatus) -> List[PatientRecord]:
-        """Get patients filtered by status."""
-        return [p for p in self._patients.values() if p.status == status]
+    def get_patients_by_risk(self, risk_level: str) -> List[PatientRecord]:
+        """Get patients filtered by risk level (low/medium/high)."""
+        return [p for p in self._patients.values() if p.risk_level == risk_level]
 
-    def get_critical_patients(self) -> List[PatientRecord]:
-        """Get all critical and urgent patients."""
-        return [p for p in self._patients.values() if p.status in ("critical", "urgent")]
+    def get_high_risk_patients(self) -> List[PatientRecord]:
+        """Get all high and medium risk patients."""
+        return [p for p in self._patients.values() if p.risk_level in ("high", "medium")]
 
-    def update_status(self, patient_id: str, new_status: ELRStatus):
-        """Update a patient's status (for demo controls)."""
+    def update_vitals(
+        self,
+        patient_id: str,
+        respiratory_rate: int = None,
+        oxygen_saturation: int = None,
+        systolic_bp: int = None,
+        pulse: int = None,
+        temperature: float = None,
+        consciousness: str = None
+    ):
+        """
+        Update a patient's vital signs and recalculate NEWS2.
+        Simulates receiving updated observations from clinical staff.
+        """
+        patient = self._patients.get(patient_id)
+        if not patient:
+            return
+
+        if respiratory_rate is not None:
+            patient.respiratory_rate = respiratory_rate
+        if oxygen_saturation is not None:
+            patient.oxygen_saturation = oxygen_saturation
+        if systolic_bp is not None:
+            patient.systolic_bp = systolic_bp
+        if pulse is not None:
+            patient.pulse = pulse
+        if temperature is not None:
+            patient.temperature = temperature
+        if consciousness is not None:
+            patient.consciousness = consciousness
+
+        # Recalculate NEWS2
+        patient.calculate_news2()
+
+    def update_news2(self, patient_id: str, news2_score: int):
+        """Directly set NEWS2 score (for demo purposes)."""
         if patient_id in self._patients:
-            self._patients[patient_id].status = new_status
+            self._patients[patient_id].news2_score = news2_score
 
     def add_patient(self, patient: PatientRecord):
         """Add a new patient record."""
+        patient.calculate_news2()
         self._patients[patient.patient_id] = patient
 
-    def remove_patient(self, patient_id: str):
+    def discharge_patient(self, patient_id: str):
         """Remove a patient (discharged)."""
         if patient_id in self._patients:
             del self._patients[patient_id]
 
-    def to_json(self) -> str:
-        """Export all patients as JSON (simulates API response)."""
-        data = {
-            "timestamp": time.time(),
-            "patients": [asdict(p) for p in self._patients.values()]
-        }
-        return json.dumps(data, indent=2)
-
-    def load_from_json(self, json_str: str):
-        """Load patients from JSON (simulates API fetch)."""
-        data = json.loads(json_str)
-        self._patients.clear()
-        for p in data.get("patients", []):
-            record = PatientRecord(**p)
-            self._patients[record.patient_id] = record
-
     # Demo helpers
-    def demo_escalate_random(self):
-        """Demo: Randomly escalate a patient's status."""
-        stable = [p for p in self._patients.values() if p.status == "stable"]
-        if stable:
-            patient = random.choice(stable)
-            patient.status = "urgent"
-            return patient
-        return None
+    def demo_deteriorate(self, patient_id: str):
+        """Demo: Make a patient's condition worse."""
+        patient = self._patients.get(patient_id)
+        if patient:
+            patient.respiratory_rate = min(35, patient.respiratory_rate + 5)
+            patient.oxygen_saturation = max(85, patient.oxygen_saturation - 4)
+            patient.pulse = min(140, patient.pulse + 15)
+            patient.calculate_news2()
 
-    def demo_resolve_random(self):
-        """Demo: Randomly resolve a critical patient."""
-        critical = [p for p in self._patients.values() if p.status == "critical"]
-        if critical:
-            patient = random.choice(critical)
-            patient.status = "stable"
-            return patient
-        return None
+    def demo_improve(self, patient_id: str):
+        """Demo: Make a patient's condition better."""
+        patient = self._patients.get(patient_id)
+        if patient:
+            patient.respiratory_rate = max(12, patient.respiratory_rate - 3)
+            patient.oxygen_saturation = min(99, patient.oxygen_saturation + 3)
+            patient.pulse = max(60, patient.pulse - 10)
+            patient.consciousness = "Alert"
+            patient.calculate_news2()

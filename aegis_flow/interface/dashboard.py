@@ -1,282 +1,274 @@
 """
-Streamlit Dashboard
-===================
-OWNER: Dashboard Team (Person E, F)
-DEPENDENCIES: streamlit, core modules, pipeline bridge
+Aegis Flow Dashboard
+====================
+Main Streamlit UI with map view, patient list, and controls.
 
-Main UI for Aegis Flow. Displays:
-- Left: Video feed with bounding box overlays
-- Right: Priority worklist of patients
-- Top: Mode toggle (Live / Demo)
-- Demo controls when in demo mode
-
-Run with: streamlit run aegis_flow/interface/dashboard.py
-
-TODO for implementer:
-1. Set up Streamlit page config and dark theme
-2. Create layout (sidebar, columns)
-3. Implement video display with overlays
-4. Implement priority worklist cards
-5. Implement demo mode controls
-6. Connect to StateManager for data
-7. Poll bridge for CV updates
+Run: streamlit run aegis_flow/interface/dashboard.py
 """
 
 import streamlit as st
-import time
+from PIL import Image, ImageDraw
+import sys
+import os
+import random
 
-# Uncomment when core modules are implemented:
-# from ..core import StateManager, Patient
-# from ..pipeline import PipelineBridge
-# from ..core.scoring import format_time_since
-import config
+# Add parent to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from aegis_flow.core.state_manager import StateManager
+from aegis_flow.core.elr_mock import ELRMock
 
 
-def setup_page():
-    """
-    Configure Streamlit page settings.
+def init_session():
+    """Initialize session state."""
+    if "sm" not in st.session_state:
+        st.session_state.sm = StateManager()
 
-    TODO:
-    - Set page title: "Aegis Flow - ED Monitor"
-    - Set layout to "wide"
-    - Set dark theme via config
-    """
-    st.set_page_config(
-        page_title="Aegis Flow - ED Monitor",
-        page_icon="🏥",
-        layout="wide",
-        initial_sidebar_state="collapsed"
+
+def render_map(sm) -> Image.Image:
+    """Render floor plan with patient dots."""
+    img = sm.floor_plan.get_image()
+    if not img:
+        img = sm.floor_plan.create_demo_floor_plan()
+
+    img = img.copy()
+    draw = ImageDraw.Draw(img)
+
+    # Draw identified patients
+    for person, record in sm.get_tracked_patients():
+        x, y = person.map_position
+        color = record.status_color
+
+        # Size based on risk
+        r = {"high": 18, "medium": 14, "low": 10}.get(record.risk_level, 10)
+
+        # Draw dot
+        draw.ellipse([x-r, y-r, x+r, y+r], fill=color, outline="white", width=2)
+
+        # Draw NEWS2 score
+        draw.text((x-6, y-8), str(record.news2_score), fill="white")
+
+        # Draw label
+        draw.text((x+r+5, y-8), f"{record.patient_id}", fill="white")
+
+    # Draw unidentified people (gray)
+    for person in sm.get_unidentified():
+        x, y = person.map_position
+        if person.person_type == "staff":
+            color = "#0d6efd"  # Blue for staff
+        else:
+            color = "#6c757d"  # Gray for unknown
+        draw.ellipse([x-8, y-8, x+8, y+8], fill=color, outline="white", width=1)
+        draw.text((x+12, y-6), person.track_id, fill="#aaa")
+
+    return img
+
+
+def render_patient_list(sm):
+    """Render patient list by risk level."""
+    st.subheader("📋 Patients by Risk")
+
+    # High risk
+    high = sm.elr.get_patients_by_risk("high")
+    if high:
+        st.error(f"🔴 HIGH RISK - NEWS2 ≥ 7 ({len(high)})")
+        for p in high:
+            located = "📍" if sm.is_patient_located(p.patient_id) else "❓"
+            st.markdown(f"**{located} {p.patient_id}**: {p.name}")
+            st.caption(f"NEWS2: **{p.news2_score}** | {p.chief_complaint} | Wait: {p.wait_time_mins}min")
+
+    # Medium risk
+    med = sm.elr.get_patients_by_risk("medium")
+    if med:
+        st.warning(f"🟡 MEDIUM - NEWS2 5-6 ({len(med)})")
+        for p in med:
+            located = "📍" if sm.is_patient_located(p.patient_id) else "❓"
+            st.markdown(f"**{located} {p.patient_id}**: {p.name}")
+            st.caption(f"NEWS2: **{p.news2_score}** | {p.chief_complaint}")
+
+    # Low risk
+    low = sm.elr.get_patients_by_risk("low")
+    if low:
+        st.success(f"🟢 LOW - NEWS2 0-4 ({len(low)})")
+        for p in low:
+            located = "📍" if sm.is_patient_located(p.patient_id) else "❓"
+            st.write(f"{located} **{p.patient_id}**: {p.name} (NEWS2: {p.news2_score})")
+
+
+def render_enrollment_panel(sm):
+    """Render patient enrollment controls."""
+    st.subheader("🏷️ Patient Enrollment")
+
+    unidentified = sm.get_unidentified()
+    patients_only = [p for p in unidentified if p.person_type != "staff"]
+
+    if not patients_only:
+        st.info("No unidentified patients to enroll")
+        return
+
+    st.write(f"{len(patients_only)} unidentified patient(s)")
+
+    # Select person
+    track_options = {f"{p.track_id} at {p.map_position}": p.track_id for p in patients_only}
+    selected = st.selectbox("Select person", list(track_options.keys()))
+    track_id = track_options[selected]
+
+    # Select patient from ELR
+    all_patients = sm.elr.get_all_patients()
+    enrolled = sm.get_enrolled_patient_ids()
+    available = [p for p in all_patients if p.patient_id not in enrolled]
+
+    if not available:
+        st.warning("All patients already enrolled")
+        return
+
+    patient_options = {f"{p.patient_id}: {p.name} (NEWS2: {p.news2_score})": p.patient_id for p in available}
+    selected_patient = st.selectbox("Assign to", list(patient_options.keys()))
+    patient_id = patient_options[selected_patient]
+
+    if st.button("✓ Enroll Patient", type="primary", use_container_width=True):
+        if sm.enroll_patient(track_id, patient_id):
+            st.success(f"Enrolled {track_id} as {patient_id}!")
+            st.rerun()
+        else:
+            st.error("Enrollment failed")
+
+
+def render_vitals_panel(sm):
+    """Render vitals update panel."""
+    st.subheader("💉 Update Vitals")
+
+    patients = sm.elr.get_all_patients()
+    if not patients:
+        return
+
+    patient_id = st.selectbox(
+        "Patient",
+        [p.patient_id for p in patients],
+        format_func=lambda x: f"{x}: {sm.elr.get_patient(x).name}"
     )
 
-    # Custom CSS for clinical HUD look
-    st.markdown("""
-    <style>
-    /* Dark theme overrides */
-    .stApp {
-        background-color: #0e1117;
-    }
+    patient = sm.elr.get_patient(patient_id)
 
-    /* Patient card styles */
-    .patient-card {
-        padding: 1rem;
-        border-radius: 8px;
-        margin-bottom: 0.5rem;
-    }
-    .patient-safe { background-color: #1a3d1a; border-left: 4px solid #28a745; }
-    .patient-at-risk { background-color: #3d3d1a; border-left: 4px solid #ffc107; }
-    .patient-critical { background-color: #3d1a1a; border-left: 4px solid #dc3545; }
+    # Current NEWS2
+    col1, col2 = st.columns(2)
+    col1.metric("NEWS2", patient.news2_score)
+    col2.metric("Risk", patient.risk_level.upper())
 
-    /* Pulsing animation for critical */
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.7; }
-        100% { opacity: 1; }
-    }
-    .critical-pulse { animation: pulse 1s infinite; }
-    </style>
-    """, unsafe_allow_html=True)
-
-
-def render_header():
-    """
-    Render the top header with mode toggle.
-
-    TODO:
-    - Display "Aegis Flow" title
-    - Add toggle for Live/Demo mode (use st.session_state)
-    - Show current FPS from CV pipeline
-    """
-    col1, col2, col3 = st.columns([2, 1, 1])
-
+    # Quick actions
+    col1, col2 = st.columns(2)
     with col1:
-        st.title("Aegis Flow")
-        st.caption("Emergency Department Spatial Monitor")
-
+        if st.button("⬆️ Deteriorate", use_container_width=True):
+            sm.elr.demo_deteriorate(patient_id)
+            st.rerun()
     with col2:
-        # TODO: Implement mode toggle
-        mode = st.radio("Mode", ["Live", "Demo"], horizontal=True, key="mode")
+        if st.button("⬇️ Improve", use_container_width=True):
+            sm.elr.demo_improve(patient_id)
+            st.rerun()
 
-    with col3:
-        # TODO: Show FPS from CV pipeline
-        st.metric("FPS", "0.0")
+    # Detailed vitals (expandable)
+    with st.expander("Edit Vitals"):
+        resp = st.slider("Respiratory Rate", 8, 35, patient.respiratory_rate)
+        spo2 = st.slider("SpO2 %", 80, 100, patient.oxygen_saturation)
+        pulse = st.slider("Pulse", 40, 150, patient.pulse)
+        bp = st.slider("Systolic BP", 70, 220, patient.systolic_bp)
 
-
-def render_video_panel():
-    """
-    Render the video feed with bounding box overlays.
-
-    TODO:
-    - Get latest frame from bridge
-    - Draw bounding boxes for staff (green) and patients (colors by state)
-    - Display in st.image()
-    - If no frame, show placeholder
-    """
-    st.subheader("📹 Live Feed")
-
-    # Placeholder for video
-    # TODO: Replace with actual video from bridge
-    st.info("Video feed will appear here. Connect webcam to enable.")
-
-    # TODO: When implemented:
-    # frame = get_latest_frame_from_bridge()
-    # if frame is not None:
-    #     frame_with_overlays = draw_overlays(frame, state_manager)
-    #     st.image(frame_with_overlays, channels="BGR")
+        if st.button("Update & Recalculate"):
+            sm.elr.update_vitals(patient_id,
+                respiratory_rate=resp,
+                oxygen_saturation=spo2,
+                pulse=pulse,
+                systolic_bp=bp
+            )
+            st.rerun()
 
 
-def render_patient_card(patient_id: str, state: str, last_interaction: float, priority: float):
-    """
-    Render a single patient card in the worklist.
-
-    TODO:
-    - Display patient ID
-    - Show state badge (colored)
-    - Show "Last interaction: X min ago"
-    - Show priority score
-    - Add progress bar showing urgency
-    """
-    state_colors = {
-        "safe": "🟢",
-        "at_risk": "🟡",
-        "critical": "🔴"
-    }
-
-    # TODO: Format time since interaction
-    time_ago = f"{int((time.time() - last_interaction) / 60)} min ago"
-
-    css_class = f"patient-{state}"
-    if state == "critical":
-        css_class += " critical-pulse"
-
-    st.markdown(f"""
-    <div class="patient-card {css_class}">
-        <strong>{state_colors.get(state, '⚪')} Patient {patient_id}</strong><br>
-        <small>Last interaction: {time_ago}</small><br>
-        <small>Priority: {priority:.0f}</small>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_worklist_panel():
-    """
-    Render the priority worklist.
-
-    TODO:
-    - Get priority list from StateManager
-    - Render each patient as a card
-    - Sort by priority (highest first)
-    - Show empty state if no patients
-    """
-    st.subheader("📋 Priority Worklist")
-
-    # TODO: Get actual patients from StateManager
-    # patients = state_manager.get_priority_list()
-
-    # Placeholder patients for UI development
-    st.info("Connect to StateManager to see real patient data.")
-
-    # Example cards (remove when connected):
-    # render_patient_card("P001", "critical", time.time() - 1200, 150)
-    # render_patient_card("P002", "at_risk", time.time() - 600, 80)
-    # render_patient_card("P003", "safe", time.time() - 120, 20)
-
-
-def render_demo_controls():
-    """
-    Render demo mode control buttons.
-
-    Only shown when mode == "Demo"
-
-    TODO:
-    - "Add Patient" button -> state_manager.demo_add_patient()
-    - "Add Staff" button -> state_manager.demo_add_staff()
-    - Patient selector dropdown
-    - "Trigger Interaction" button
-    - "Simulate 5min Neglect" button
-    - "Simulate 15min Neglect" button
-    - "Clear All" button
-    """
-    st.subheader("🎮 Demo Controls")
+def render_demo_controls(sm):
+    """Render demo mode controls."""
+    st.subheader("🎮 Demo Mode")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("➕ Add Patient", use_container_width=True):
-            # TODO: state_manager.demo_add_patient(...)
-            st.success("Patient added!")
-
-        if st.button("➕ Add Staff", use_container_width=True):
-            # TODO: state_manager.demo_add_staff(...)
-            st.success("Staff added!")
+        if st.button("🎲 Setup Demo", use_container_width=True):
+            sm.demo_setup()
+            st.rerun()
 
     with col2:
-        # TODO: Get patient IDs from StateManager
-        patient_id = st.selectbox("Select Patient", ["P001", "P002", "P003"])
+        if st.button("🗑️ Clear All", use_container_width=True):
+            sm.demo_clear_all()
+            st.rerun()
 
-        if st.button("🤝 Trigger Interaction", use_container_width=True):
-            # TODO: state_manager.demo_trigger_interaction(patient_id)
-            st.success(f"Interaction recorded for {patient_id}")
+    if st.button("➕ Add Random Person", use_container_width=True):
+        cam = random.choice(["cam_corridor", "cam_waiting", "cam_triage"])
+        pos = (random.randint(100, 700), random.randint(100, 500))
+        ptype = random.choice(["patient", "patient", "patient", "staff"])
+        sm.demo_add_person(cam, pos, ptype)
+        st.rerun()
+
+
+def render_stats(sm):
+    """Render statistics."""
+    stats = sm.get_stats()
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("👥 Tracked", stats["total_tracked"])
+    col2.metric("🏷️ Enrolled", stats["tagged_patients"])
+    col3.metric("🔴 Critical", stats["critical_located"])
+    col4.metric("🟡 Urgent", stats["urgent_located"])
+
+
+def main():
+    # Page config
+    st.set_page_config(
+        page_title="Aegis Flow",
+        page_icon="🏥",
+        layout="wide"
+    )
+
+    # Initialize
+    init_session()
+    sm = st.session_state.sm
+
+    # Header
+    st.title("🏥 Aegis Flow - Patient Locator")
+    st.caption("Real-time patient tracking with NEWS2 monitoring")
+
+    # Stats bar
+    render_stats(sm)
 
     st.divider()
 
-    st.write("⏩ Fast-forward neglect time:")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("5 min", use_container_width=True):
-            # TODO: state_manager.demo_simulate_neglect(patient_id, 5)
-            pass
-
-    with col2:
-        if st.button("10 min", use_container_width=True):
-            # TODO: state_manager.demo_simulate_neglect(patient_id, 10)
-            pass
-
-    with col3:
-        if st.button("20 min", use_container_width=True):
-            # TODO: state_manager.demo_simulate_neglect(patient_id, 20)
-            pass
-
-    st.divider()
-
-    if st.button("🗑️ Clear All", type="secondary", use_container_width=True):
-        # TODO: state_manager.demo_clear_all()
-        st.warning("All entities cleared!")
-
-
-def run_dashboard():
-    """
-    Main dashboard entry point.
-
-    TODO:
-    1. Initialize StateManager (singleton)
-    2. Set up bridge connection to CV process
-    3. Render UI components
-    4. Poll for updates in a loop (use st.empty() for updates)
-    """
-    setup_page()
-    render_header()
-
-    # Main content layout
+    # Main layout
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        render_video_panel()
+        st.subheader("📍 Floor Plan")
+        map_img = render_map(sm)
+        st.image(map_img, use_container_width=True)
+
+        # Legend
+        st.caption("🔴 High Risk (NEWS2 ≥7) | 🟡 Medium (5-6) | 🟢 Low (0-4) | 🔵 Staff | ⚫ Unidentified")
 
     with col2:
-        render_worklist_panel()
+        render_patient_list(sm)
 
-        # Show demo controls only in demo mode
-        if st.session_state.get("mode") == "Demo":
-            st.divider()
-            render_demo_controls()
+    # Sidebar
+    with st.sidebar:
+        st.title("⚙️ Controls")
 
-    # Auto-refresh
-    # TODO: Replace with proper bridge polling
-    time.sleep(config.DASHBOARD_REFRESH_RATE)
-    st.rerun()
+        render_enrollment_panel(sm)
+        st.divider()
+
+        render_vitals_panel(sm)
+        st.divider()
+
+        render_demo_controls(sm)
+
+        st.divider()
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.rerun()
 
 
-# Entry point when running directly with streamlit
 if __name__ == "__main__":
-    run_dashboard()
+    main()

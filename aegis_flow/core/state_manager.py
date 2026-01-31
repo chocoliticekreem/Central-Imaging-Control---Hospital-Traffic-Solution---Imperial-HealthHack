@@ -203,6 +203,41 @@ class StateManager:
             }
 
     # =========================================================================
+    # ENROLLMENT HELPERS (for UI)
+    # =========================================================================
+
+    def get_unidentified(self) -> List[TrackedPerson]:
+        """Get tracked people not yet linked to patients."""
+        with self._lock:
+            return [p for p in self._tracked.values() if not p.is_identified]
+
+    def get_enrolled_patient_ids(self) -> List[str]:
+        """Get list of patient IDs that have been enrolled (linked to tracked people)."""
+        with self._lock:
+            return [p.patient_id for p in self._tracked.values() if p.patient_id]
+
+    def enroll_patient(self, track_id: str, patient_id: str) -> bool:
+        """Link a tracked person to a patient record via Re-ID."""
+        return self.tag_patient(track_id, patient_id)
+
+    def is_patient_located(self, patient_id: str) -> bool:
+        """Check if a patient is currently being tracked."""
+        with self._lock:
+            return any(p.patient_id == patient_id for p in self._tracked.values())
+
+    def get_high_risk_locations(self) -> List[Tuple[TrackedPerson, PatientRecord]]:
+        """Get locations of high and medium risk patients."""
+        return self.get_critical_locations()
+
+    def get_zone_name(self, position: tuple[int, int]) -> str:
+        """Get the zone name for a map position."""
+        for zone in self.floor_plan.get_all_zones():
+            if (zone.map_x <= position[0] <= zone.map_x + zone.map_width and
+                zone.map_y <= position[1] <= zone.map_y + zone.map_height):
+                return zone.camera_name
+        return "Unknown Area"
+
+    # =========================================================================
     # DEMO HELPERS
     # =========================================================================
 
