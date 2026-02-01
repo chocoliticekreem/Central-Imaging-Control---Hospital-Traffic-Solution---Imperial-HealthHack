@@ -25,7 +25,7 @@ from .bridge import PipelineBridge, PipelineMessage, EntityUpdate
 # from ..vision import PersonDetector, CentroidTracker, UniformClassifier
 
 try:
-    from aegis_flow import config
+    from cic import config
 except ImportError:
     import config
 

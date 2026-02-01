@@ -1,6 +1,6 @@
 """
-Aegis Flow - Emergency Department Spatial Monitor
-=================================================
+CIC - Central Imaging Control
+=============================
 
 A spatial intelligence platform for hospital emergency departments.
 Uses computer vision to track patients and staff, calculate "neglect time",

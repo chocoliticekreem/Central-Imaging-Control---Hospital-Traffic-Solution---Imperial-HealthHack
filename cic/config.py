@@ -1,6 +1,6 @@
 """
-Aegis Flow Configuration
-========================
+CIC Configuration
+=================
 Central configuration for all modules. Adjust these values for demo tuning.
 """
 

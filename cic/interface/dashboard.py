@@ -1,9 +1,9 @@
 """
-Aegis Flow Dashboard
-====================
+CIC Dashboard
+=============
 Main Streamlit UI with map view, patient list, and controls.
 
-Run: streamlit run aegis_flow/interface/dashboard.py
+Run: streamlit run cic/interface/dashboard.py
 """
 
 import streamlit as st
@@ -15,8 +15,8 @@ import random
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from aegis_flow.core.state_manager import StateManager
-from aegis_flow.core.elr_mock import ELRMock
+from cic.core.state_manager import StateManager
+from cic.core.elr_mock import ELRMock
 
 
 def init_session():
@@ -66,38 +66,38 @@ def render_map(sm) -> Image.Image:
 
 def render_patient_list(sm):
     """Render patient list by risk level."""
-    st.subheader("📋 Patients by Risk")
+    st.subheader("Patients by Risk")
 
     # High risk
     high = sm.elr.get_patients_by_risk("high")
     if high:
-        st.error(f"🔴 HIGH RISK - NEWS2 ≥ 7 ({len(high)})")
+        st.error(f"HIGH RISK - NEWS2 >= 7 ({len(high)})")
         for p in high:
-            located = "📍" if sm.is_patient_located(p.patient_id) else "❓"
+            located = "Located" if sm.is_patient_located(p.patient_id) else "?"
             st.markdown(f"**{located} {p.patient_id}**: {p.name}")
             st.caption(f"NEWS2: **{p.news2_score}** | {p.chief_complaint} | Wait: {p.wait_time_mins}min")
 
     # Medium risk
     med = sm.elr.get_patients_by_risk("medium")
     if med:
-        st.warning(f"🟡 MEDIUM - NEWS2 5-6 ({len(med)})")
+        st.warning(f"MEDIUM - NEWS2 5-6 ({len(med)})")
         for p in med:
-            located = "📍" if sm.is_patient_located(p.patient_id) else "❓"
+            located = "Located" if sm.is_patient_located(p.patient_id) else "?"
             st.markdown(f"**{located} {p.patient_id}**: {p.name}")
             st.caption(f"NEWS2: **{p.news2_score}** | {p.chief_complaint}")
 
     # Low risk
     low = sm.elr.get_patients_by_risk("low")
     if low:
-        st.success(f"🟢 LOW - NEWS2 0-4 ({len(low)})")
+        st.success(f"LOW - NEWS2 0-4 ({len(low)})")
         for p in low:
-            located = "📍" if sm.is_patient_located(p.patient_id) else "❓"
+            located = "Located" if sm.is_patient_located(p.patient_id) else "?"
             st.write(f"{located} **{p.patient_id}**: {p.name} (NEWS2: {p.news2_score})")
 
 
 def render_enrollment_panel(sm):
     """Render patient enrollment controls."""
-    st.subheader("🏷️ Patient Enrollment")
+    st.subheader("Patient Enrollment")
 
     unidentified = sm.get_unidentified()
     patients_only = [p for p in unidentified if p.person_type != "staff"]
@@ -126,7 +126,7 @@ def render_enrollment_panel(sm):
     selected_patient = st.selectbox("Assign to", list(patient_options.keys()))
     patient_id = patient_options[selected_patient]
 
-    if st.button("✓ Enroll Patient", type="primary", use_container_width=True):
+    if st.button("Enroll Patient", type="primary", use_container_width=True):
         if sm.enroll_patient(track_id, patient_id):
             st.success(f"Enrolled {track_id} as {patient_id}!")
             st.rerun()
@@ -136,7 +136,7 @@ def render_enrollment_panel(sm):
 
 def render_vitals_panel(sm):
     """Render vitals update panel."""
-    st.subheader("💉 Update Vitals")
+    st.subheader("Update Vitals")
 
     patients = sm.elr.get_all_patients()
     if not patients:
@@ -158,11 +158,11 @@ def render_vitals_panel(sm):
     # Quick actions
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("⬆️ Deteriorate", use_container_width=True):
+        if st.button("Deteriorate", use_container_width=True):
             sm.elr.demo_deteriorate(patient_id)
             st.rerun()
     with col2:
-        if st.button("⬇️ Improve", use_container_width=True):
+        if st.button("Improve", use_container_width=True):
             sm.elr.demo_improve(patient_id)
             st.rerun()
 
@@ -185,21 +185,21 @@ def render_vitals_panel(sm):
 
 def render_demo_controls(sm):
     """Render demo mode controls."""
-    st.subheader("🎮 Demo Mode")
+    st.subheader("Demo Mode")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("🎲 Setup Demo", use_container_width=True):
+        if st.button("Setup Demo", use_container_width=True):
             sm.demo_setup()
             st.rerun()
 
     with col2:
-        if st.button("🗑️ Clear All", use_container_width=True):
+        if st.button("Clear All", use_container_width=True):
             sm.demo_clear_all()
             st.rerun()
 
-    if st.button("➕ Add Random Person", use_container_width=True):
+    if st.button("Add Random Person", use_container_width=True):
         cam = random.choice(["cam_corridor", "cam_waiting", "cam_triage"])
         pos = (random.randint(100, 700), random.randint(100, 500))
         ptype = random.choice(["patient", "patient", "patient", "staff"])
@@ -212,17 +212,17 @@ def render_stats(sm):
     stats = sm.get_stats()
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("👥 Tracked", stats["total_tracked"])
-    col2.metric("🏷️ Enrolled", stats["tagged_patients"])
-    col3.metric("🔴 Critical", stats["critical_located"])
-    col4.metric("🟡 Urgent", stats["urgent_located"])
+    col1.metric("Tracked", stats["total_tracked"])
+    col2.metric("Enrolled", stats["tagged_patients"])
+    col3.metric("Critical", stats["critical_located"])
+    col4.metric("Urgent", stats["urgent_located"])
 
 
 def main():
     # Page config
     st.set_page_config(
-        page_title="Aegis Flow",
-        page_icon="🏥",
+        page_title="CIC - Central Imaging Control",
+        page_icon="H",
         layout="wide"
     )
 
@@ -231,7 +231,7 @@ def main():
     sm = st.session_state.sm
 
     # Header
-    st.title("🏥 Aegis Flow - Patient Locator")
+    st.title("CIC - Central Imaging Control")
     st.caption("Real-time patient tracking with NEWS2 monitoring")
 
     # Stats bar
@@ -243,19 +243,19 @@ def main():
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        st.subheader("📍 Floor Plan")
+        st.subheader("Floor Plan")
         map_img = render_map(sm)
         st.image(map_img, use_container_width=True)
 
         # Legend
-        st.caption("🔴 High Risk (NEWS2 ≥7) | 🟡 Medium (5-6) | 🟢 Low (0-4) | 🔵 Staff | ⚫ Unidentified")
+        st.caption("Red = High Risk (NEWS2 >=7) | Yellow = Medium (5-6) | Green = Low (0-4) | Blue = Staff | Gray = Unidentified")
 
     with col2:
         render_patient_list(sm)
 
     # Sidebar
     with st.sidebar:
-        st.title("⚙️ Controls")
+        st.title("Controls")
 
         render_enrollment_panel(sm)
         st.divider()
@@ -266,7 +266,7 @@ def main():
         render_demo_controls(sm)
 
         st.divider()
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("Refresh", use_container_width=True):
             st.rerun()
 
 
