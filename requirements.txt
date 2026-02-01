@@ -1,0 +1,4 @@
+# CIC - Central Imaging Control
+# Install with: pip install -r requirements.txt
+
+-r cic/requirements.txt

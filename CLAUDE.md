@@ -4,27 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Aegis Flow** - Patient location system for hospital EDs using CCTV + Re-ID tracking with NEWS2 scoring.
+**CIC - Central Imaging Control** - Patient location system for hospital EDs using CCTV + Re-ID tracking with NEWS2 scoring.
 
-**Key insight:** NHS ELR tells WHO needs help. Aegis Flow tells WHERE they are.
+**Key insight:** NHS ELR tells WHO needs help. CIC tells WHERE they are.
 
 ## Tech Stack
 
-- **CV**: YOLOv8, OpenCV, Re-ID (color histogram)
-- **UI**: Streamlit
-- **Patient Data**: Mock ELR with NEWS2 scoring
+- **Backend**: Python with Flask (cic/vision/app_system2.py)
+- **CV**: YOLOv8 + ResNet18 Re-ID + OpenCV
+- **Frontend**: HTML templates with MJPEG streaming
+- **Deployment**: Local machine with webcam
 
-## Quick Start
+## Commands
 
 ```bash
 # Install dependencies
-pip install ultralytics opencv-python numpy streamlit Pillow
+pip install -r cic/requirements.txt
 
-# Test webcam detection
-python aegis_flow/test_webcam.py
+# Run main application (Flask + YOLO + Re-ID)
+python cic/vision/app_system2.py
 
-# Run dashboard
-streamlit run aegis_flow/interface/dashboard.py
+# Run webcam test
+python cic/test_webcam.py
+
+# Run Streamlit dashboard (alternative UI)
+streamlit run cic/interface/dashboard.py
 ```
 
 ## Architecture
@@ -39,28 +43,22 @@ Webcam → YOLO → Tracker → Re-ID Match → Map Display
 
 | Score | Risk | Color | Action |
 |-------|------|-------|--------|
-| 0-4 | Low | 🟢 Green | Routine |
-| 5-6 | Medium | 🟡 Yellow | Urgent review |
-| 7+ | High | 🔴 Red | Emergency |
+| 0-4 | Low | Green | Routine |
+| 5-6 | Medium | Yellow | Urgent review |
+| 7+ | High | Red | Emergency |
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `vision/detector.py` | YOLO person detection |
-| `vision/tracker.py` | Centroid tracking with IDs |
-| `vision/classifier.py` | Staff/patient by uniform color |
-| `vision/reid.py` | Re-ID signature matching |
-| `core/state_manager.py` | Central state + enrollment |
-| `core/elr_mock.py` | Mock NHS patient data |
-| `interface/dashboard.py` | Streamlit map UI |
-| `test_webcam.py` | Webcam test script |
-
-## Team Tasks (4 People)
-
-| Person | Focus | Files |
-|--------|-------|-------|
-| 1 | Vision Pipeline | `vision/*`, `test_webcam.py` |
-| 2 | Dashboard UI | `interface/dashboard.py` |
-| 3 | Enrollment + NEWS2 | `interface/dashboard.py`, `core/*` |
-| 4 | Integration | `pipeline/*`, connect webcam→UI |
+| `cic/vision/app_system2.py` | Main Flask app (run this) |
+| `cic/vision/templates/index2.html` | Dashboard UI |
+| `cic/vision/patients.json` | Mock EPR database |
+| `cic/vision/detector.py` | YOLO person detection |
+| `cic/vision/tracker.py` | Centroid tracking with IDs |
+| `cic/vision/classifier.py` | Staff/patient by uniform color |
+| `cic/vision/reid.py` | Re-ID signature matching |
+| `cic/core/state_manager.py` | Central state + enrollment |
+| `cic/core/elr_mock.py` | Mock NHS patient data |
+| `cic/interface/dashboard.py` | Streamlit map UI (alternative) |
+| `cic/test_webcam.py` | Webcam test script |

@@ -21,11 +21,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from .bridge import PipelineBridge, PipelineMessage, EntityUpdate
 
-# These imports will work once vision modules are implemented
-# from ..vision import PersonDetector, CentroidTracker, UniformClassifier
+# Vision components
+from cic.vision.detector import PersonDetector
+from cic.vision.tracker import CentroidTracker
+from cic.vision.classifier import UniformClassifier
 
 try:
-    from aegis_flow import config
+    from cic import config
 except ImportError:
     import config
 
@@ -58,29 +60,24 @@ class CVProcessor:
                 self.process.terminate()
 
     def _run(self):
-        """
-        Main processing loop.
-
-        TODO for implementer:
-        1. Initialize cv2.VideoCapture
-        2. Initialize PersonDetector, CentroidTracker, UniformClassifier
-        3. Loop: capture → detect → track → classify → send
-        """
+        """Main processing loop."""
         import cv2
-        import numpy as np
 
         # Initialize camera
         cap = cv2.VideoCapture(config.CAMERA_INDEX)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
 
-        # TODO: Initialize vision components when implemented
-        # detector = PersonDetector()
-        # tracker = CentroidTracker()
-        # classifier = UniformClassifier()
+        # Initialize vision components
+        print("Initializing vision components...")
+        detector = PersonDetector(confidence=0.5)
+        tracker = CentroidTracker(max_distance=80, max_missed=15)
+        classifier = UniformClassifier()
+        print("Vision components ready!")
 
         fps_time = time.time()
         frame_count = 0
+        fps = 0
 
         while self._running:
             ret, frame = cap.read()
@@ -88,36 +85,38 @@ class CVProcessor:
                 time.sleep(0.1)
                 continue
 
-            # TODO: Replace with actual detection when implemented
-            # detections = detector.detect(frame)
-            # tracks = tracker.update(detections)
-            # entities = []
-            # for track_id, tracked in tracks.items():
-            #     person_type = classifier.classify(frame, tracked.bbox)
-            #     entities.append(EntityUpdate(
-            #         entity_id=track_id,
-            #         camera_id=self.camera_id,
-            #         entity_type=person_type,
-            #         position=tracked.centroid,
-            #         bbox=tracked.bbox
-            #     ))
+            # 1. Detect people
+            detections = detector.detect(frame)
 
-            # For now, send empty frame
+            # 2. Track people (assign persistent IDs)
+            tracks = tracker.update(detections)
+
+            # 3. Classify and build entity updates
             entities = []
+            for track_id, tracked in tracks.items():
+                # Classify as staff/patient based on uniform color
+                person_type = classifier.classify(frame, tracked.bbox)
+
+                entities.append(EntityUpdate(
+                    entity_id=track_id,
+                    camera_id=self.camera_id,
+                    entity_type=person_type,
+                    position=tracked.centroid,
+                    bbox=tracked.bbox
+                ))
 
             # Calculate FPS
             frame_count += 1
-            if time.time() - fps_time >= 1.0:
-                fps = frame_count / (time.time() - fps_time)
+            elapsed = time.time() - fps_time
+            if elapsed >= 1.0:
+                fps = frame_count / elapsed
                 frame_count = 0
                 fps_time = time.time()
-            else:
-                fps = 0
 
-            # Encode frame
+            # Encode frame for transmission
             frame_bytes = PipelineBridge.encode_frame(frame)
 
-            # Send message
+            # Send message to UI
             message = PipelineMessage(
                 entities=entities,
                 frame_jpeg=frame_bytes,
@@ -126,7 +125,8 @@ class CVProcessor:
             )
             self.bridge.send(message)
 
-            time.sleep(0.033)  # ~30 FPS cap
+            # Cap at ~30 FPS
+            time.sleep(0.033)
 
         cap.release()
 
@@ -136,3 +136,33 @@ def run_processor(queue: Queue, camera_id: str = "cam_corridor"):
     processor = CVProcessor(queue, camera_id)
     processor._running = True
     processor._run()
+
+
+# Standalone test
+if __name__ == "__main__":
+    from multiprocessing import Queue
+    import cv2
+
+    print("Testing CV Processor standalone...")
+    q = Queue()
+
+    # Run in main thread for testing
+    processor = CVProcessor(q, "cam_test")
+    processor._running = True
+
+    # Run for a few seconds
+    import threading
+
+    def run_for_seconds(seconds):
+        time.sleep(seconds)
+        processor._running = False
+
+    t = threading.Thread(target=run_for_seconds, args=(10,))
+    t.start()
+
+    try:
+        processor._run()
+    except KeyboardInterrupt:
+        processor._running = False
+
+    print(f"Processed frames. Queue size: {q.qsize()}")

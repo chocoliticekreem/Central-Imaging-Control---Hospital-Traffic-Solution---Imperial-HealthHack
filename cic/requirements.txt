@@ -1,0 +1,21 @@
+# CIC - Central Imaging Control
+# Install with: pip install -r cic/requirements.txt
+
+# Computer Vision
+ultralytics>=8.0.0          # YOLOv8 for person detection
+opencv-python>=4.8.0        # Video capture + processing
+numpy>=1.24.0               # Array operations
+
+# Deep Learning (Re-ID)
+torch>=2.0.0                # PyTorch
+torchvision>=0.15.0         # ResNet for feature extraction
+scipy>=1.10.0               # Cosine distance for matching
+
+# Web Framework
+flask>=3.0.0                # Web server + API
+
+# Image Processing
+Pillow>=10.0.0              # Image handling
+
+# Optional: Alternative Streamlit dashboard
+# streamlit>=1.28.0
