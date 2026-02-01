@@ -19,7 +19,7 @@ output_map_frame = None
 data_lock = threading.Lock() 
 
 # Load dummy records
-with open('aegis_flow/vision/patients.json', 'r') as f:
+with open('cic/vision/patients.json', 'r') as f:
     epr_database = json.load(f)
 
 @app.route('/')
