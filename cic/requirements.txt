@@ -1,17 +1,18 @@
-# CIC Backend Dependencies
+# CIC - Clinical Intelligence Center
+# Install with: pip install -r requirements.txt
 
 # Computer Vision
 ultralytics>=8.0.0          # YOLOv8 for person detection
 opencv-python>=4.8.0        # Video capture + processing
 numpy>=1.24.0               # Array operations
 
+# Deep Learning (Re-ID)
+torch>=2.0.0                # PyTorch
+torchvision>=0.15.0         # ResNet for feature extraction
+scipy>=1.10.0               # Cosine distance for matching
+
 # Web Framework
-fastapi>=0.104.0            # REST API
-uvicorn>=0.24.0             # ASGI server
-pydantic>=2.0.0             # Data validation
+flask>=3.0.0                # Web server + API
 
 # Image Processing
-Pillow>=10.0.0              # Floor plan images
-
-# Optional: Legacy dashboard
-# streamlit>=1.28.0
+Pillow>=10.0.0              # Image handling
