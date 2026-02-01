@@ -1,5 +1,5 @@
 /**
- * Custom hook for fetching and managing Aegis Flow data
+ * Custom hook for fetching and managing CIC data
  */
 
 import { useState, useEffect, useCallback } from "react";

@@ -1,5 +1,5 @@
 """
-Aegis Flow - Emergency Department Spatial Monitor
+CIC - Emergency Department Spatial Monitor
 =================================================
 
 A spatial intelligence platform for hospital emergency departments.

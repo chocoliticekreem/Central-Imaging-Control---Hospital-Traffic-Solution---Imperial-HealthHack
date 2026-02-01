@@ -1,5 +1,5 @@
 """
-Aegis Flow - Main Entry Point
+CIC - Main Entry Point
 =============================
 
 Starts the full system:
@@ -7,10 +7,10 @@ Starts the full system:
 2. Streamlit dashboard in foreground
 
 Usage:
-    python aegis_flow/main.py
+    python cic/main.py
 
 Or run dashboard directly:
-    streamlit run aegis_flow/interface/dashboard.py
+    streamlit run cic/interface/dashboard.py
 
 TODO for implementer:
 1. Initialize multiprocessing Queue
@@ -28,7 +28,7 @@ import signal
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from aegis_flow.pipeline.processor import run_processor
+from cic.pipeline.processor import run_processor
 
 
 def main():
@@ -85,7 +85,7 @@ def main_with_cv():
     """
     from multiprocessing import Process
 
-    print("Starting Aegis Flow with CV processing...")
+    print("Starting CIC with CV processing...")
 
     # Create communication queue
     queue = Queue(maxsize=10)

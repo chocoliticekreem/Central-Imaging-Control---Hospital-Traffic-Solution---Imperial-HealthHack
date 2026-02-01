@@ -4,7 +4,7 @@ Webcam Test Script
 ==================
 Quick test of detection, tracking, classification, and Re-ID.
 
-Run: python aegis_flow/test_webcam.py
+Run: python cic/test_webcam.py
 Press 'q' to quit, 'e' to enroll current person, 'c' to clear enrollments
 """
 
@@ -15,15 +15,15 @@ import os
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from aegis_flow.vision.detector import PersonDetector
-from aegis_flow.vision.tracker import CentroidTracker
-from aegis_flow.vision.classifier import UniformClassifier
-from aegis_flow.vision.reid import ReIDExtractor, ReIDMatcher
+from cic.vision.detector import PersonDetector
+from cic.vision.tracker import CentroidTracker
+from cic.vision.classifier import UniformClassifier
+from cic.vision.reid import ReIDExtractor, ReIDMatcher
 
 
 def main():
     print("=" * 50)
-    print("Aegis Flow - Webcam Test")
+    print("CIC - Webcam Test")
     print("=" * 50)
     print()
     print("Controls:")
@@ -128,7 +128,7 @@ def main():
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         # Show frame
-        cv2.imshow("Aegis Flow - Webcam Test", frame)
+        cv2.imshow("CIC - Webcam Test", frame)
 
         # Handle key presses
         key = cv2.waitKey(1) & 0xFF

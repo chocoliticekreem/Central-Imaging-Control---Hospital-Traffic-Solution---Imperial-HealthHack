@@ -1,8 +1,16 @@
 /**
- * API Client for Aegis Flow Backend
+ * API Client for CIC Backend
+ *
+ * Configuration:
+ * - API_BASE: Set via environment variable VITE_API_URL or defaults to localhost
+ * - VIDEO_BASE: Always localhost (webcam runs locally)
  */
 
-const API_BASE = "http://localhost:8000/api";
+// Remote API server (can be set via environment variable)
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+
+// Video always runs locally (webcam on local machine)
+const VIDEO_BASE = "http://localhost:8000/api/video";
 
 // Generic fetch wrapper
 async function fetchAPI(endpoint, options = {}) {
@@ -71,11 +79,31 @@ export async function unenrollPatient(trackId) {
 }
 
 // ============================================================================
-// Stats Endpoint
+// Stats & Floor Plan Endpoints
 // ============================================================================
 
 export async function getStats() {
   return fetchAPI("/stats");
+}
+
+export async function getFloorPlan() {
+  return fetchAPI("/floor-plan");
+}
+
+// ============================================================================
+// Video Endpoints (Local Only)
+// ============================================================================
+
+export function getVideoStreamUrl() {
+  return VIDEO_BASE;
+}
+
+export async function getVideoStatus() {
+  const response = await fetch(`${VIDEO_BASE}/status`);
+  if (!response.ok) {
+    throw new Error(`Video API Error: ${response.status}`);
+  }
+  return response.json();
 }
 
 // ============================================================================
@@ -109,3 +137,6 @@ export async function demoUpdateVitals(patientId, direction) {
 export async function healthCheck() {
   return fetchAPI("/health");
 }
+
+// Export base URLs for components that need them directly
+export { API_BASE, VIDEO_BASE };

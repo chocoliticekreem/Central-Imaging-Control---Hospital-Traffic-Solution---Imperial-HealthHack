@@ -1,9 +1,9 @@
 """
-Aegis Flow Dashboard
+CIC Dashboard
 ====================
 Main Streamlit UI with live webcam feed and map view.
 
-Run: streamlit run aegis_flow/interface/dashboard.py
+Run: streamlit run cic/interface/dashboard.py
 """
 
 import streamlit as st
@@ -23,11 +23,11 @@ sys.path.insert(0, root_dir)
 sys.path.insert(0, parent_dir)
 
 try:
-    from aegis_flow.core.state_manager import StateManager
-    from aegis_flow.vision.detector import PersonDetector
-    from aegis_flow.vision.tracker import CentroidTracker
-    from aegis_flow.vision.classifier import UniformClassifier
-    from aegis_flow.vision.reid import ReIDExtractor, ReIDMatcher
+    from cic.core.state_manager import StateManager
+    from cic.vision.detector import PersonDetector
+    from cic.vision.tracker import CentroidTracker
+    from cic.vision.classifier import UniformClassifier
+    from cic.vision.reid import ReIDExtractor, ReIDMatcher
 except ImportError:
     from core.state_manager import StateManager
     from vision.detector import PersonDetector
@@ -312,7 +312,7 @@ def render_demo_controls(sm):
 
 
 def main():
-    st.set_page_config(page_title="Aegis Flow", page_icon="🏥", layout="wide")
+    st.set_page_config(page_title="CIC", page_icon="🏥", layout="wide")
 
     # Initialize
     init_session()
@@ -327,7 +327,7 @@ def main():
     # Header
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
-        st.title("🏥 Aegis Flow")
+        st.title("🏥 CIC")
     with col2:
         webcam_on = st.checkbox("📷 Webcam", value=st.session_state.webcam_active)
         st.session_state.webcam_active = webcam_on

@@ -22,12 +22,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from .bridge import PipelineBridge, PipelineMessage, EntityUpdate
 
 # Vision components
-from aegis_flow.vision.detector import PersonDetector
-from aegis_flow.vision.tracker import CentroidTracker
-from aegis_flow.vision.classifier import UniformClassifier
+from cic.vision.detector import PersonDetector
+from cic.vision.tracker import CentroidTracker
+from cic.vision.classifier import UniformClassifier
 
 try:
-    from aegis_flow import config
+    from cic import config
 except ImportError:
     import config
 

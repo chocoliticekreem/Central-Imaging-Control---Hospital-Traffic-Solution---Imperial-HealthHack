@@ -1,46 +1,32 @@
 """
-Aegis Flow API
-==============
+CIC API
+=======
 FastAPI backend for the React frontend.
 
-Run: uvicorn aegis_flow.api:app --reload --port 8000
+Run: uvicorn cic.api:app --host 0.0.0.0 --port 8000
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import sys
 import os
-import cv2
-import time
-import threading
 
 # Add paths for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from aegis_flow.core.state_manager import StateManager
-from aegis_flow.vision.detector import PersonDetector
-from aegis_flow.vision.tracker import CentroidTracker
-from aegis_flow.vision.classifier import UniformClassifier
+from cic.core.state_manager import StateManager
 
-app = FastAPI(title="Aegis Flow API", version="1.0.0")
+# Import video router (separate module for easy updates)
+from cic.api.video import router as video_router
 
-# Global CV components (initialized lazily)
-cv_components = {
-    "detector": None,
-    "tracker": None,
-    "classifier": None,
-    "camera": None,
-    "lock": threading.Lock(),
-    "running": False,
-}
+app = FastAPI(title="CIC API", version="1.0.0")
 
-# CORS for React frontend
+# CORS for React frontend (allow all origins for remote hosting)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,6 +36,9 @@ app.add_middleware(
 sm = StateManager()
 sm.floor_plan.setup_demo_zones()
 sm.floor_plan.create_demo_floor_plan()
+
+# Include video routes (can be updated without touching this file)
+app.include_router(video_router)
 
 
 # ============================================================================
@@ -107,7 +96,7 @@ def get_patients():
             vitals={
                 "hr": p.pulse,
                 "bp_sys": p.systolic_bp,
-                "bp_dia": 80,  # Not tracked separately
+                "bp_dia": 80,
                 "rr": p.respiratory_rate,
                 "temp": p.temperature,
                 "spo2": p.oxygen_saturation,
@@ -243,7 +232,7 @@ def unenroll_patient(track_id: str):
 
 
 # ============================================================================
-# Stats Endpoint
+# Stats & Floor Plan Endpoints
 # ============================================================================
 
 @app.get("/api/stats", response_model=StatsResponse)
@@ -251,6 +240,24 @@ def get_stats():
     """Get dashboard statistics."""
     stats = sm.get_stats()
     return StatsResponse(**stats)
+
+
+@app.get("/api/floor-plan")
+def get_floor_plan():
+    """Get floor plan image (base64) and zone definitions."""
+    zones = [
+        {
+            "camera_id": z.camera_id,
+            "camera_name": z.camera_name,
+            "map_x": z.map_x,
+            "map_y": z.map_y,
+            "map_width": z.map_width,
+            "map_height": z.map_height,
+        }
+        for z in sm.floor_plan.get_all_zones()
+    ]
+    image_base64 = sm.floor_plan.get_image_base64()
+    return {"image_base64": image_base64, "zones": zones, "width": 800, "height": 600}
 
 
 # ============================================================================
@@ -293,112 +300,10 @@ def demo_update_vitals(patient_id: str, direction: str):
 
 
 # ============================================================================
-# Video Streaming
-# ============================================================================
-
-def init_cv_components():
-    """Initialize CV components if not already done."""
-    with cv_components["lock"]:
-        if cv_components["detector"] is None:
-            print("Initializing CV components...")
-            cv_components["detector"] = PersonDetector(confidence=0.5)
-            cv_components["tracker"] = CentroidTracker(max_distance=80, max_missed=15)
-            cv_components["classifier"] = UniformClassifier()
-            print("CV components ready!")
-
-
-def generate_frames():
-    """Generator that yields MJPEG frames with CV processing."""
-    init_cv_components()
-
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-    detector = cv_components["detector"]
-    tracker = cv_components["tracker"]
-    classifier = cv_components["classifier"]
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            time.sleep(0.1)
-            continue
-
-        # Run CV pipeline
-        detections = detector.detect(frame)
-        tracks = tracker.update(detections)
-
-        # Process each tracked person and update state manager
-        for track_id, tracked in tracks.items():
-            person_type = classifier.classify(frame, tracked.bbox)
-
-            # Update state manager
-            sm.update_tracked(
-                track_id=track_id,
-                camera_id="cam_webcam",
-                position=tracked.centroid,
-                person_type=person_type
-            )
-
-            # Draw bounding box
-            x1, y1, x2, y2 = tracked.bbox
-
-            # Color based on type
-            if person_type == "staff":
-                color = (255, 165, 0)  # Orange
-            else:
-                color = (0, 255, 0)  # Green
-
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-            # Label
-            label = f"{track_id} [{person_type}]"
-            cv2.putText(frame, label, (x1, y1 - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-            # Center dot
-            cx, cy = tracked.centroid
-            cv2.circle(frame, (cx, cy), 5, color, -1)
-
-        # Encode frame as JPEG
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        frame_bytes = buffer.tobytes()
-
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-
-        time.sleep(0.033)  # ~30 FPS
-
-
-@app.get("/api/video")
-def video_feed():
-    """Stream video with CV detections as MJPEG."""
-    return StreamingResponse(
-        generate_frames(),
-        media_type="multipart/x-mixed-replace; boundary=frame"
-    )
-
-
-@app.post("/api/video/start")
-def start_video():
-    """Start video processing."""
-    init_cv_components()
-    return {"success": True, "message": "Video processing started"}
-
-
-@app.post("/api/video/stop")
-def stop_video():
-    """Stop video processing."""
-    # Note: The stream will stop when client disconnects
-    return {"success": True, "message": "Video processing stopped"}
-
-
-# ============================================================================
 # Health Check
 # ============================================================================
 
 @app.get("/api/health")
 def health_check():
     """API health check."""
-    return {"status": "ok", "service": "aegis-flow"}
+    return {"status": "ok", "service": "cic"}

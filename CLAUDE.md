@@ -1,66 +1,89 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-**Aegis Flow** - Patient location system for hospital EDs using CCTV + Re-ID tracking with NEWS2 scoring.
+**CIC (Clinical Intelligence Center)** - Patient location system for hospital EDs using CCTV + Re-ID tracking with NEWS2 scoring.
 
-**Key insight:** NHS ELR tells WHO needs help. Aegis Flow tells WHERE they are.
+**Key insight:** NHS ELR tells WHO needs help. CIC tells WHERE they are.
+
+## Architecture
+
+```
+Remote Server (API)          Local Workstation (Webcam)
+┌─────────────────┐          ┌─────────────────┐
+│  FastAPI        │◀────────▶│  React Frontend │
+│  State Manager  │          │  Video Stream   │
+│  Mock ELR       │          │  CV Pipeline    │
+└─────────────────┘          └─────────────────┘
+```
 
 ## Tech Stack
 
-- **CV**: YOLOv8, OpenCV, Re-ID (color histogram)
-- **UI**: Streamlit
+- **Backend**: FastAPI, Python
+- **Frontend**: React + Vite + Tailwind
+- **CV**: YOLOv8, OpenCV, Centroid Tracker
 - **Patient Data**: Mock ELR with NEWS2 scoring
 
 ## Quick Start
 
 ```bash
-# Install dependencies
-pip install ultralytics opencv-python numpy streamlit Pillow
+# Backend (remote or local)
+cd cic
+pip install -r requirements.txt
+uvicorn api:app --host 0.0.0.0 --port 8000
 
-# Test webcam detection
-python aegis_flow/test_webcam.py
+# Frontend
+cd frontend
+npm install
+npm run dev
 
-# Run dashboard
-streamlit run aegis_flow/interface/dashboard.py
+# With remote API
+VITE_API_URL=http://<server-ip>:8000/api npm run dev
 ```
 
-## Architecture
+## Key Directories
 
-```
-Webcam → YOLO → Tracker → Re-ID Match → Map Display
-                              ↓
-                    ELR (NEWS2 scores) → Color by risk
-```
+| Directory | Purpose |
+|-----------|---------|
+| `cic/core/` | State management, entities, ELR mock |
+| `cic/vision/` | YOLO detector, tracker, classifier |
+| `cic/api/` | Video streaming module (separate) |
+| `cic/api.py` | Main FastAPI endpoints |
+| `frontend/src/` | React components + hooks |
+
+## API Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `/api/patients` | All patients from ELR |
+| `/api/tracked` | Currently tracked people |
+| `/api/stats` | Dashboard statistics |
+| `/api/floor-plan` | Floor plan + zones |
+| `/api/enroll` | Link person → patient |
+| `/api/video` | MJPEG stream (local only) |
 
 ## NEWS2 Risk Levels
 
-| Score | Risk | Color | Action |
-|-------|------|-------|--------|
-| 0-4 | Low | 🟢 Green | Routine |
-| 5-6 | Medium | 🟡 Yellow | Urgent review |
-| 7+ | High | 🔴 Red | Emergency |
+| Score | Risk | Color |
+|-------|------|-------|
+| 0-4 | Low | 🟢 Green |
+| 5-6 | Medium | 🟡 Yellow |
+| 7+ | High | 🔴 Red |
 
-## Key Files
+## Team File Ownership
 
-| File | Purpose |
-|------|---------|
-| `vision/detector.py` | YOLO person detection |
-| `vision/tracker.py` | Centroid tracking with IDs |
-| `vision/classifier.py` | Staff/patient by uniform color |
-| `vision/reid.py` | Re-ID signature matching |
-| `core/state_manager.py` | Central state + enrollment |
-| `core/elr_mock.py` | Mock NHS patient data |
-| `interface/dashboard.py` | Streamlit map UI |
-| `test_webcam.py` | Webcam test script |
+| Module | Files |
+|--------|-------|
+| Core | `cic/core/*` |
+| Vision/CV | `cic/vision/*` |
+| Video Stream | `cic/api/video.py` |
+| Main API | `cic/api.py` |
+| Frontend | `frontend/src/*` |
 
-## Team Tasks (4 People)
+## Merge Notes
 
-| Person | Focus | Files |
-|--------|-------|-------|
-| 1 | Vision Pipeline | `vision/*`, `test_webcam.py` |
-| 2 | Dashboard UI | `interface/dashboard.py` |
-| 3 | Enrollment + NEWS2 | `interface/dashboard.py`, `core/*` |
-| 4 | Integration | `pipeline/*`, connect webcam→UI |
+- Video code is isolated in `cic/api/video.py` - can be updated without touching main API
+- Vision modules are independent - update detector/tracker separately
+- Frontend API client supports configurable remote URL via `VITE_API_URL`

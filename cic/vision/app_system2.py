@@ -7,29 +7,52 @@ import torchvision.models as models
 from scipy.spatial.distance import cosine
 import json
 import threading
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, Response
 
 # --- 1. SETUP FLASK SERVER ---
 app = Flask(__name__)
 
-# Global variable to share data between AI (Thread A) and Web Server (Thread B)
+# Global variables to share data between AI (Thread A) and Web Server (Thread B)
 live_patient_data = {} 
+output_map_frame = None # Stores the latest map image for streaming
+data_lock = threading.Lock() # Ensures threads don't clash
 
 # Load the dummy EPR records
-with open('aegis_flow/vision/patients.json', 'r') as f:
+with open('cic/vision/patients.json', 'r') as f:
     epr_database = json.load(f)
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index2.html')
 
 @app.route('/data')
 def get_data():
-    """API endpoint the mobile app calls to get live locations"""
+    """API endpoint for live text data"""
     return jsonify(live_patient_data)
 
+def generate_map_feed():
+    """Generator function that yields the map image as a stream"""
+    global output_map_frame
+    while True:
+        with data_lock:
+            if output_map_frame is None:
+                continue
+            # Encode the image to JPEG
+            (flag, encodedImage) = cv2.imencode(".jpg", output_map_frame)
+            if not flag:
+                continue
+        # Yield the output in MJPEG format
+        yield(b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + 
+              bytearray(encodedImage) + b'\r\n')
+
+@app.route('/map_feed')
+def map_feed():
+    """Route for the Image tag to source"""
+    return Response(generate_map_feed(),
+                    mimetype = "multipart/x-mixed-replace; boundary=frame")
+
 def run_flask():
-    # Run server on 0.0.0.0 so external mobile devices can connect
+    # Running on Port 5001 to avoid AirPlay conflict
     app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False)
 
 # Start Flask in a separate thread
@@ -41,7 +64,7 @@ flask_thread.start()
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 print(f"--- SYSTEM ONLINE ---")
 print(f"AI Processor: {device}")
-print(f"Mobile Dashboard: http://localhost:5000")
+print(f"Mobile Dashboard: http://localhost:5001")
 
 # Re-ID Model
 feature_extractor = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
@@ -67,7 +90,7 @@ src_points = np.float32([
     [1664, 1072],  # Bottom-Right
     [216, 1068]   # Bottom-Left
 ])
-# Mirrored Map Destination Points
+# Mirrored Map Destination Points (Left on screen = Left on map)
 dst_points = np.float32([
     [0, MAP_HEIGHT], [MAP_WIDTH, MAP_HEIGHT],
     [MAP_WIDTH, 0], [0, 0]
@@ -75,10 +98,10 @@ dst_points = np.float32([
 matrix = cv2.getPerspectiveTransform(src_points, dst_points)
 
 # Data Stores
-patient_fingerprints = {}  # { global_id : embedding_vector }
+patient_fingerprints = {} 
 next_global_id = 1
-MATCH_THRESHOLD = 0.25 
-active_track_map = {} # { yolo_id : global_id }
+MATCH_THRESHOLD = 0.20
+active_track_map = {} 
 
 def get_embedding(image_crop):
     img_tensor = preprocess(image_crop).unsqueeze(0).to(device)
@@ -109,13 +132,14 @@ while True:
     if not ret: break
     frame = cv2.flip(frame, 1) # Mirror Feed
     
-    display_map = map_img.copy()
-    cv2.rectangle(display_map, (0,0), (MAP_WIDTH, MAP_HEIGHT), (255, 255, 255), -1)
+    # Create the map for this frame
+    current_map = map_img.copy()
+    cv2.rectangle(current_map, (0,0), (MAP_WIDTH, MAP_HEIGHT), (255, 255, 255), -1)
+    
+    # Draw floor zone on camera
     cv2.polylines(frame, [np.int32(src_points)], True, (0, 255, 255), 2)
 
     results = yolo_model.track(frame, persist=True, classes=[0], verbose=False)
-    
-    # Reset live data for this frame (so people who leave disappear from app)
     current_frame_data = {}
 
     if results[0].boxes.id is not None:
@@ -135,7 +159,6 @@ while True:
                     active_track_map[track_id] = global_id
                     patient_fingerprints[global_id] = vector
                 
-                # Update Embedding (Adaptive)
                 gid = active_track_map[track_id]
                 new_vec = get_embedding(face_crop)
                 patient_fingerprints[gid] = (0.9 * patient_fingerprints[gid]) + (0.1 * new_vec)
@@ -147,37 +170,40 @@ while True:
             transformed = cv2.perspectiveTransform(p, matrix)
             map_x, map_y = int(transformed[0][0][0]), int(transformed[0][0][1])
 
-            # --- DATA SYNC TO WEB APP ---
-            # Link Global ID to EPR Record (Modulo to loop through dummy data)
-            # Patient 1 -> EPR[0], Patient 2 -> EPR[1]
+            # Sync to EPR
             epr_index = (gid - 1) % len(epr_database)
             epr_record = epr_database[epr_index]
             
-            # Package the data for the app
+            # Package Data
             current_frame_data[gid] = {
                 "name": epr_record['name'],
                 "epr_id": epr_record['epr_id'],
+                "age": epr_record['age'],
                 "condition": epr_record['condition'],
                 "triage_score": epr_record['triage_score'],
+                "notes": epr_record['notes'],
                 "map_x": map_x,
                 "map_y": map_y
             }
 
-            # Draw on Screens
+            # Draw on Camera
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(frame, f"{epr_record['name']}", (x1, y1 - 10), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
             
+            # Draw on Map
             if 0 <= map_x < MAP_WIDTH and 0 <= map_y < MAP_HEIGHT:
-                cv2.circle(display_map, (map_x, map_y), 15, (255, 0, 0), -1)
-                cv2.putText(display_map, f"{epr_record['name']}", (map_x+20, map_y), 
+                cv2.circle(current_map, (map_x, map_y), 15, (255, 0, 0), -1)
+                cv2.putText(current_map, f"{epr_record['name']}", (map_x+20, map_y), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
 
-    # Update the global variable for Flask
+    # Update Global Variables for Flask
     live_patient_data = current_frame_data
+    with data_lock:
+        output_map_frame = current_map.copy()
 
     cv2.imshow("Main System", frame)
-    cv2.imshow("2D Map", display_map)
+    cv2.imshow("2D Map", current_map) # Optional: Hide local map to save screen space
 
     if cv2.waitKey(1) & 0xFF == ord('q'): break
 
