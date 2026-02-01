@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPR Live Tracking</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
+        .header { background: #003366; color: white; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+        .card { background: white; border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-left: 8px solid gray; }
+        .card.Red { border-left-color: #ff3b30; }
+        .card.Yellow { border-left-color: #ffcc00; }
+        .card.Green { border-left-color: #34c759; }
+        .row { display: flex; justify-content: space-between; }
+        .label { color: #666; font-size: 0.8em; text-transform: uppercase; }
+        .value { font-weight: bold; font-size: 1.1em; }
+        .location { background: #e1f5fe; color: #0277bd; padding: 5px 10px; border-radius: 15px; font-weight: bold; display: inline-block; margin-top: 10px;}
+        .status-dot { height: 10px; width: 10px; background-color: #bbb; border-radius: 50%; display: inline-block; }
+        .active { background-color: #34c759; box-shadow: 0 0 5px #34c759; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>🏥 Live Patient Dashboard</h2>
+        <p>Real-time EPR & Location Sync</p>
+    </div>
+
+    <div id="patient-list">
+        <p>Waiting for connection to CCTV system...</p>
+    </div>
+
+    <script>
+        function updateDashboard() {
+            fetch('/data')
+                .then(response => response.json())
+                .then(data => {
+                    const container = document.getElementById('patient-list');
+                    container.innerHTML = ''; // Clear old data
+
+                    if (Object.keys(data).length === 0) {
+                        container.innerHTML = '<p>No patients detected in view.</p>';
+                        return;
+                    }
+
+                    // Loop through each detected patient
+                    for (const [track_id, patient] of Object.entries(data)) {
+                        // Extract color for the border (Red/Yellow/Green)
+                        const triageColor = patient.triage_score.split(' ')[0]; 
+
+                        const html = `
+                            <div class="card ${triageColor}">
+                                <div class="row">
+                                    <div>
+                                        <div class="label">Patient Name</div>
+                                        <div class="value">${patient.name}</div>
+                                    </div>
+                                    <div>
+                                        <div class="label">ID</div>
+                                        <div class="value">${patient.epr_id}</div>
+                                    </div>
+                                </div>
+                                <hr style="border: 0; border-top: 1px solid #eee; margin: 10px 0;">
+                                <div class="row">
+                                    <div>
+                                        <div class="label">Condition</div>
+                                        <div>${patient.condition}</div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div class="label">Triage</div>
+                                        <div style="color:${triageColor === 'Yellow' ? '#b58900' : triageColor}">
+                                            ${patient.triage_score}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="location">
+                                    📍 Map Location: X:${patient.map_x}, Y:${patient.map_y}
+                                </div>
+                            </div>
+                        `;
+                        container.innerHTML += html;
+                    }
+                });
+        }
+
+        // Update every 1 second
+        setInterval(updateDashboard, 1000);
+        updateDashboard();
+    </script>
+</body>
+</html>

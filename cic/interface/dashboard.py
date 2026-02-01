@@ -1,7 +1,7 @@
 """
 CIC Dashboard
-=============
-Main Streamlit UI with map view, patient list, and controls.
+====================
+Main Streamlit UI with live webcam feed and map view.
 
 Run: streamlit run cic/interface/dashboard.py
 """
@@ -11,18 +11,157 @@ from PIL import Image, ImageDraw
 import sys
 import os
 import random
+import time
+import cv2
+import numpy as np
 
-# Add parent to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add paths for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+root_dir = os.path.dirname(parent_dir)
+sys.path.insert(0, root_dir)
+sys.path.insert(0, parent_dir)
 
-from cic.core.state_manager import StateManager
-from cic.core.elr_mock import ELRMock
+try:
+    from cic.core.state_manager import StateManager
+    from cic.vision.detector import PersonDetector
+    from cic.vision.tracker import CentroidTracker
+    from cic.vision.classifier import UniformClassifier
+    from cic.vision.reid import ReIDExtractor, ReIDMatcher
+except ImportError:
+    from core.state_manager import StateManager
+    from vision.detector import PersonDetector
+    from vision.tracker import CentroidTracker
+    from vision.classifier import UniformClassifier
+    from vision.reid import ReIDExtractor, ReIDMatcher
+
+
+@st.cache_resource
+def get_detector():
+    """Cache the YOLO detector."""
+    return PersonDetector(confidence=0.5)
+
+
+@st.cache_resource
+def get_tracker():
+    """Cache the tracker."""
+    return CentroidTracker(max_distance=80, max_missed=15)
+
+
+@st.cache_resource
+def get_classifier():
+    """Cache the classifier."""
+    return UniformClassifier()
+
+
+@st.cache_resource
+def get_reid():
+    """Cache Re-ID components."""
+    return ReIDExtractor(), ReIDMatcher(threshold=0.6)
 
 
 def init_session():
     """Initialize session state."""
     if "sm" not in st.session_state:
         st.session_state.sm = StateManager()
+        # Auto-setup demo data
+        st.session_state.sm.floor_plan.setup_demo_zones()
+        st.session_state.sm.floor_plan.create_demo_floor_plan()
+
+    if "auto_refresh" not in st.session_state:
+        st.session_state.auto_refresh = False
+
+    if "webcam_active" not in st.session_state:
+        st.session_state.webcam_active = False
+
+    if "camera" not in st.session_state:
+        st.session_state.camera = None
+
+
+def process_frame(frame, detector, tracker, classifier, reid_extractor, reid_matcher, sm):
+    """Process a single frame through the CV pipeline."""
+    # Detect people
+    detections = detector.detect(frame)
+
+    # Track people
+    tracks = tracker.update(detections)
+
+    # Process each tracked person
+    for track_id, tracked in tracks.items():
+        # Classify as staff/patient
+        person_type = classifier.classify(frame, tracked.bbox)
+
+        # Extract Re-ID signature
+        signature = reid_extractor.extract_signature(frame, tracked.bbox)
+
+        # Try to match against enrolled patients
+        match = reid_matcher.match(signature)
+
+        # Update state manager
+        person = sm.update_tracked(
+            track_id=track_id,
+            camera_id="cam_webcam",
+            position=tracked.centroid,
+            person_type=person_type
+        )
+
+        # If matched, link to patient
+        if match and not person.patient_id:
+            sm.tag_patient(track_id, match.patient_id)
+
+    return tracks
+
+
+def draw_detections(frame, tracks, classifier, reid_matcher, sm):
+    """Draw bounding boxes and labels on frame."""
+    frame = frame.copy()
+
+    for track_id, tracked in tracks.items():
+        x1, y1, x2, y2 = tracked.bbox
+        cx, cy = tracked.centroid
+
+        # Get person info
+        person_type = classifier.classify(frame, tracked.bbox)
+
+        # Check if enrolled
+        person = None
+        for p in sm.get_all_tracked():
+            if p.track_id == track_id:
+                person = p
+                break
+
+        # Determine color and label
+        if person and person.patient_id:
+            record = sm.elr.get_patient(person.patient_id)
+            if record:
+                color_map = {"high": (0, 0, 255), "medium": (0, 255, 255), "low": (0, 255, 0)}
+                color = color_map.get(record.risk_level, (128, 128, 128))
+                label = f"{record.patient_id} NEWS2:{record.news2_score}"
+            else:
+                color = (128, 128, 128)
+                label = track_id
+        elif person_type == "staff":
+            color = (255, 165, 0)  # Orange
+            label = f"{track_id} [STAFF]"
+        else:
+            color = (128, 128, 128)  # Gray
+            label = f"{track_id} [?]"
+
+        # Draw bounding box
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+        # Draw label background
+        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+        cv2.rectangle(frame, (x1, y1 - 25), (x1 + label_size[0] + 10, y1), color, -1)
+
+        # Draw label
+        cv2.putText(frame, label, (x1 + 5, y1 - 7),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # Draw center point
+        cv2.circle(frame, (cx, cy), 5, color, -1)
+
+    return frame
 
 
 def render_map(sm) -> Image.Image:
@@ -39,225 +178,231 @@ def render_map(sm) -> Image.Image:
         x, y = person.map_position
         color = record.status_color
 
-        # Size based on risk
-        r = {"high": 18, "medium": 14, "low": 10}.get(record.risk_level, 10)
+        # Outer glow for critical
+        if record.risk_level == "high":
+            draw.ellipse([x-28, y-28, x+28, y+28], fill=None, outline="#ff4444", width=3)
+            r = 18
+        elif record.risk_level == "medium":
+            draw.ellipse([x-20, y-20, x+20, y+20], fill=None, outline="#ffcc00", width=2)
+            r = 14
+        else:
+            r = 10
 
-        # Draw dot
         draw.ellipse([x-r, y-r, x+r, y+r], fill=color, outline="white", width=2)
+        draw.text((x-4, y-7), str(record.news2_score), fill="white")
+        draw.text((x+r+5, y-8), record.patient_id, fill="white")
 
-        # Draw NEWS2 score
-        draw.text((x-6, y-8), str(record.news2_score), fill="white")
-
-        # Draw label
-        draw.text((x+r+5, y-8), f"{record.patient_id}", fill="white")
-
-    # Draw unidentified people (gray)
+    # Draw unidentified
     for person in sm.get_unidentified():
         x, y = person.map_position
-        if person.person_type == "staff":
-            color = "#0d6efd"  # Blue for staff
-        else:
-            color = "#6c757d"  # Gray for unknown
+        color = "#0d6efd" if person.person_type == "staff" else "#6c757d"
         draw.ellipse([x-8, y-8, x+8, y+8], fill=color, outline="white", width=1)
         draw.text((x+12, y-6), person.track_id, fill="#aaa")
 
     return img
 
 
+def render_critical_alerts(sm):
+    """Show alert banner for critical patients."""
+    critical = [(p, r) for p, r in sm.get_tracked_patients() if r.risk_level == "high"]
+
+    if not critical:
+        return
+
+    st.error(f"🚨 **{len(critical)} CRITICAL PATIENT(S)** - Immediate attention required!")
+
+    cols = st.columns(min(len(critical), 3))
+    for i, (person, record) in enumerate(critical):
+        with cols[i % 3]:
+            zone = sm.get_zone_name(person.map_position)
+            st.markdown(f"""
+            **{record.patient_id}**: {record.name}
+            📍 {zone} | NEWS2: **{record.news2_score}**
+            _{record.chief_complaint}_
+            """)
+
+
 def render_patient_list(sm):
-    """Render patient list by risk level."""
-    st.subheader("Patients by Risk")
+    """Render patient list."""
+    st.subheader("📋 Patients")
 
-    # High risk
-    high = sm.elr.get_patients_by_risk("high")
-    if high:
-        st.error(f"HIGH RISK - NEWS2 >= 7 ({len(high)})")
-        for p in high:
-            located = "Located" if sm.is_patient_located(p.patient_id) else "?"
-            st.markdown(f"**{located} {p.patient_id}**: {p.name}")
-            st.caption(f"NEWS2: **{p.news2_score}** | {p.chief_complaint} | Wait: {p.wait_time_mins}min")
-
-    # Medium risk
-    med = sm.elr.get_patients_by_risk("medium")
-    if med:
-        st.warning(f"MEDIUM - NEWS2 5-6 ({len(med)})")
-        for p in med:
-            located = "Located" if sm.is_patient_located(p.patient_id) else "?"
-            st.markdown(f"**{located} {p.patient_id}**: {p.name}")
-            st.caption(f"NEWS2: **{p.news2_score}** | {p.chief_complaint}")
-
-    # Low risk
-    low = sm.elr.get_patients_by_risk("low")
-    if low:
-        st.success(f"LOW - NEWS2 0-4 ({len(low)})")
-        for p in low:
-            located = "Located" if sm.is_patient_located(p.patient_id) else "?"
-            st.write(f"{located} **{p.patient_id}**: {p.name} (NEWS2: {p.news2_score})")
+    for risk, icon, expanded in [("high", "🔴", True), ("medium", "🟡", True), ("low", "🟢", False)]:
+        patients = sm.elr.get_patients_by_risk(risk)
+        if patients:
+            with st.expander(f"{icon} {risk.upper()} ({len(patients)})", expanded=expanded):
+                for p in patients:
+                    located = "📍" if sm.is_patient_located(p.patient_id) else "❓"
+                    st.write(f"{located} **{p.patient_id}**: {p.name} (NEWS2: {p.news2_score})")
 
 
-def render_enrollment_panel(sm):
-    """Render patient enrollment controls."""
-    st.subheader("Patient Enrollment")
+def render_enrollment_panel(sm, reid_matcher):
+    """Render enrollment controls."""
+    st.subheader("🏷️ Enrollment")
 
-    unidentified = sm.get_unidentified()
-    patients_only = [p for p in unidentified if p.person_type != "staff"]
+    unidentified = [p for p in sm.get_unidentified() if p.person_type != "staff"]
 
-    if not patients_only:
-        st.info("No unidentified patients to enroll")
+    if not unidentified:
+        st.success("✓ All enrolled")
         return
 
-    st.write(f"{len(patients_only)} unidentified patient(s)")
+    st.warning(f"{len(unidentified)} unidentified")
 
-    # Select person
-    track_options = {f"{p.track_id} at {p.map_position}": p.track_id for p in patients_only}
-    selected = st.selectbox("Select person", list(track_options.keys()))
-    track_id = track_options[selected]
+    track_id = st.selectbox("Person", [p.track_id for p in unidentified])
 
-    # Select patient from ELR
-    all_patients = sm.elr.get_all_patients()
     enrolled = sm.get_enrolled_patient_ids()
-    available = [p for p in all_patients if p.patient_id not in enrolled]
+    available = [p for p in sm.elr.get_all_patients() if p.patient_id not in enrolled]
 
-    if not available:
-        st.warning("All patients already enrolled")
-        return
+    if available:
+        patient_id = st.selectbox("Patient", [p.patient_id for p in available],
+                                  format_func=lambda x: f"{x}: {sm.elr.get_patient(x).name}")
 
-    patient_options = {f"{p.patient_id}: {p.name} (NEWS2: {p.news2_score})": p.patient_id for p in available}
-    selected_patient = st.selectbox("Assign to", list(patient_options.keys()))
-    patient_id = patient_options[selected_patient]
-
-    if st.button("Enroll Patient", type="primary", use_container_width=True):
-        if sm.enroll_patient(track_id, patient_id):
-            st.success(f"Enrolled {track_id} as {patient_id}!")
+        if st.button("✓ Enroll", type="primary", use_container_width=True):
+            sm.enroll_patient(track_id, patient_id)
+            st.success("Enrolled!")
             st.rerun()
-        else:
-            st.error("Enrollment failed")
 
 
 def render_vitals_panel(sm):
-    """Render vitals update panel."""
-    st.subheader("Update Vitals")
+    """Render vitals panel."""
+    st.subheader("💉 Vitals")
 
     patients = sm.elr.get_all_patients()
-    if not patients:
-        return
-
-    patient_id = st.selectbox(
-        "Patient",
-        [p.patient_id for p in patients],
-        format_func=lambda x: f"{x}: {sm.elr.get_patient(x).name}"
-    )
+    patient_id = st.selectbox("Patient", [p.patient_id for p in patients],
+                              format_func=lambda x: f"{x}: {sm.elr.get_patient(x).name}",
+                              key="vitals_select")
 
     patient = sm.elr.get_patient(patient_id)
 
-    # Current NEWS2
-    col1, col2 = st.columns(2)
-    col1.metric("NEWS2", patient.news2_score)
-    col2.metric("Risk", patient.risk_level.upper())
+    # Big NEWS2 display
+    colors = {"high": "#dc3545", "medium": "#ffc107", "low": "#28a745"}
+    st.markdown(f"<h1 style='text-align:center; color:{colors[patient.risk_level]}'>{patient.news2_score}</h1>",
+                unsafe_allow_html=True)
+    st.caption(f"NEWS2 Score - {patient.risk_level.upper()} risk")
 
-    # Quick actions
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Deteriorate", use_container_width=True):
+        if st.button("⬆️ Worse", use_container_width=True):
             sm.elr.demo_deteriorate(patient_id)
             st.rerun()
     with col2:
-        if st.button("Improve", use_container_width=True):
+        if st.button("⬇️ Better", use_container_width=True):
             sm.elr.demo_improve(patient_id)
-            st.rerun()
-
-    # Detailed vitals (expandable)
-    with st.expander("Edit Vitals"):
-        resp = st.slider("Respiratory Rate", 8, 35, patient.respiratory_rate)
-        spo2 = st.slider("SpO2 %", 80, 100, patient.oxygen_saturation)
-        pulse = st.slider("Pulse", 40, 150, patient.pulse)
-        bp = st.slider("Systolic BP", 70, 220, patient.systolic_bp)
-
-        if st.button("Update & Recalculate"):
-            sm.elr.update_vitals(patient_id,
-                respiratory_rate=resp,
-                oxygen_saturation=spo2,
-                pulse=pulse,
-                systolic_bp=bp
-            )
             st.rerun()
 
 
 def render_demo_controls(sm):
-    """Render demo mode controls."""
-    st.subheader("Demo Mode")
+    """Render demo controls."""
+    st.subheader("🎮 Demo")
 
     col1, col2 = st.columns(2)
-
     with col1:
-        if st.button("Setup Demo", use_container_width=True):
+        if st.button("🎲 Add Demo Data", use_container_width=True):
             sm.demo_setup()
             st.rerun()
-
     with col2:
-        if st.button("Clear All", use_container_width=True):
+        if st.button("🗑️ Clear", use_container_width=True):
             sm.demo_clear_all()
             st.rerun()
 
-    if st.button("Add Random Person", use_container_width=True):
+    if st.button("➕ Add Person", use_container_width=True):
         cam = random.choice(["cam_corridor", "cam_waiting", "cam_triage"])
-        pos = (random.randint(100, 700), random.randint(100, 500))
-        ptype = random.choice(["patient", "patient", "patient", "staff"])
-        sm.demo_add_person(cam, pos, ptype)
+        pos = (random.randint(80, 720), random.randint(120, 480))
+        sm.demo_add_person(cam, pos, "patient")
         st.rerun()
 
 
-def render_stats(sm):
-    """Render statistics."""
-    stats = sm.get_stats()
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Tracked", stats["total_tracked"])
-    col2.metric("Enrolled", stats["tagged_patients"])
-    col3.metric("Critical", stats["critical_located"])
-    col4.metric("Urgent", stats["urgent_located"])
-
-
 def main():
-    # Page config
-    st.set_page_config(
-        page_title="CIC - Central Imaging Control",
-        page_icon="H",
-        layout="wide"
-    )
+    st.set_page_config(page_title="CIC", page_icon="🏥", layout="wide")
 
     # Initialize
     init_session()
     sm = st.session_state.sm
 
-    # Header
-    st.title("CIC - Central Imaging Control")
-    st.caption("Real-time patient tracking with NEWS2 monitoring")
+    # Get CV components
+    detector = get_detector()
+    tracker = get_tracker()
+    classifier = get_classifier()
+    reid_extractor, reid_matcher = get_reid()
 
-    # Stats bar
-    render_stats(sm)
+    # Header
+    col1, col2, col3 = st.columns([3, 1, 1])
+    with col1:
+        st.title("🏥 CIC")
+    with col2:
+        webcam_on = st.checkbox("📷 Webcam", value=st.session_state.webcam_active)
+        st.session_state.webcam_active = webcam_on
+    with col3:
+        auto_refresh = st.checkbox("🔄 Auto", value=st.session_state.auto_refresh)
+        st.session_state.auto_refresh = auto_refresh
+
+    # Stats
+    stats = sm.get_stats()
+    cols = st.columns(5)
+    cols[0].metric("👥 Tracked", stats["total_tracked"])
+    cols[1].metric("🏷️ Enrolled", stats["tagged_patients"])
+    cols[2].metric("❓ Unknown", stats["untagged"])
+    cols[3].metric("🔴 Critical", stats["critical_located"])
+    cols[4].metric("🟡 Urgent", stats["urgent_located"])
+
+    # Critical alerts
+    render_critical_alerts(sm)
 
     st.divider()
 
-    # Main layout
-    col1, col2 = st.columns([2, 1])
+    # Main content
+    if webcam_on:
+        # Webcam mode: show camera + map side by side
+        col1, col2 = st.columns([1, 1])
 
-    with col1:
-        st.subheader("Floor Plan")
-        map_img = render_map(sm)
-        st.image(map_img, use_container_width=True)
+        with col1:
+            st.subheader("📷 Live Feed")
+            video_placeholder = st.empty()
 
-        # Legend
-        st.caption("Red = High Risk (NEWS2 >=7) | Yellow = Medium (5-6) | Green = Low (0-4) | Blue = Staff | Gray = Unidentified")
+            # Open camera
+            cap = cv2.VideoCapture(0)
 
-    with col2:
-        render_patient_list(sm)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    # Process frame
+                    tracks = process_frame(frame, detector, tracker, classifier,
+                                          reid_extractor, reid_matcher, sm)
+
+                    # Draw detections
+                    frame_with_boxes = draw_detections(frame, tracks, classifier, reid_matcher, sm)
+
+                    # Convert BGR to RGB
+                    frame_rgb = cv2.cvtColor(frame_with_boxes, cv2.COLOR_BGR2RGB)
+
+                    # Display
+                    video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+
+                cap.release()
+            else:
+                st.error("Could not open webcam")
+
+        with col2:
+            st.subheader("📍 Map")
+            map_img = render_map(sm)
+            st.image(map_img, use_container_width=True)
+    else:
+        # Map-only mode
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            st.subheader("📍 Floor Plan")
+            map_img = render_map(sm)
+            st.image(map_img, use_container_width=True)
+            st.caption("🔴 High | 🟡 Medium | 🟢 Low | 🔵 Staff | ⚫ Unknown")
+
+        with col2:
+            render_patient_list(sm)
 
     # Sidebar
     with st.sidebar:
-        st.title("Controls")
+        st.title("⚙️ Controls")
 
-        render_enrollment_panel(sm)
+        render_enrollment_panel(sm, reid_matcher)
         st.divider()
 
         render_vitals_panel(sm)
@@ -265,9 +410,10 @@ def main():
 
         render_demo_controls(sm)
 
-        st.divider()
-        if st.button("Refresh", use_container_width=True):
-            st.rerun()
+    # Auto-refresh
+    if auto_refresh or webcam_on:
+        time.sleep(0.5 if webcam_on else 2)
+        st.rerun()
 
 
 if __name__ == "__main__":

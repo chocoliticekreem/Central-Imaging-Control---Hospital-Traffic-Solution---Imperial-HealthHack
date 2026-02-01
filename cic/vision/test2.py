@@ -38,7 +38,7 @@ next_global_id = 1
 # Lower = Easier to match (less strict)
 # Higher = Harder to match (more strict)
 # 0.5 is a good balance for the "Split Body" method
-MATCH_THRESHOLD = 0.5 
+MATCH_THRESHOLD = 0.5
 
 def get_patient_fingerprint(image_crop):
     """
