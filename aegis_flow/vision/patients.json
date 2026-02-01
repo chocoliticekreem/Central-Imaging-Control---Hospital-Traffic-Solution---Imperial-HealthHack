@@ -5,7 +5,8 @@
         "age": 34,
         "condition": "Cardiac Arrhythmia",
         "triage_score": "Red (Urgent)",
-        "notes": "Monitor heart rate constantly. History of AFib."
+        "news2_score": 5,
+        "notes": "Monitor heart rate constantly."
     },
     {
         "epr_id": "B205",
@@ -13,7 +14,8 @@
         "age": 52,
         "condition": "Mild Concussion",
         "triage_score": "Yellow (Observation)",
-        "notes": "Check pupil response every hour. Patient reports dizziness."
+        "news2_score": 3,
+        "notes": "Check pupil response every hour."
     },
     {
         "epr_id": "C309",
@@ -21,7 +23,8 @@
         "age": 21,
         "condition": "Fractured Wrist",
         "triage_score": "Green (Stable)",
-        "notes": "Awaiting X-Ray results. Pain managed with paracetamol."
+        "news2_score": 0,
+        "notes": "Awaiting X-Ray results."
     },
     {
         "epr_id": "D412",
@@ -29,15 +32,17 @@
         "age": 68,
         "condition": "Severe Dehydration",
         "triage_score": "Yellow (Observation)",
-        "notes": "IV fluids started. Monitor urine output."
+        "news2_score": 4,
+        "notes": "IV fluids started."
     },
     {
         "epr_id": "E523",
         "name": "Charles Huyghe",
         "age": 45,
-        "condition": "Chest Pains",
+        "condition": "Chest Pains (Angina)",
         "triage_score": "Red (Urgent)",
-        "notes": "ECG scheduled immediately. Possible angina."
+        "news2_score": 8,
+        "notes": "High risk. ECG scheduled immediately."
     },
     {
         "epr_id": "F634",
@@ -45,38 +50,43 @@
         "age": 29,
         "condition": "Allergic Reaction",
         "triage_score": "Yellow (Observation)",
-        "notes": "Administered antihistamines. Monitor breathing."
+        "news2_score": 2,
+        "notes": "Administered antihistamines."
     },
     {
         "epr_id": "G745",
-        "name": "Barry Allen",
+        "name": "Lebron James",
         "age": 88,
         "condition": "Hip Pain (Fall)",
         "triage_score": "Yellow (Observation)",
-        "notes": "Fall risk. Needs assistance for mobility."
+        "news2_score": 4,
+        "notes": "Fall risk. Needs assistance."
     },
     {
         "epr_id": "H856",
-        "name": "Wade Wilson",
+        "name": "Peter Parker",
         "age": 6,
         "condition": "High Fever (39.5°C)",
         "triage_score": "Red (Urgent)",
-        "notes": "Rapid cooling measures. Screen for infection."
+        "news2_score": 7,
+        "notes": "Rapid cooling measures."
     },
     {
         "epr_id": "I967",
-        "name": "Clark Kent",
+        "name": "Wade Wilson",
         "age": 19,
         "condition": "Sprained Ankle",
         "triage_score": "Green (Stable)",
-        "notes": "Ice pack applied. Needs crutches."
+        "news2_score": 1,
+        "notes": "Ice pack applied."
     },
     {
         "epr_id": "J078",
-        "name": "Lebron James",
+        "name": "John Doe",
         "age": 31,
         "condition": "Migraine",
         "triage_score": "Green (Stable)",
-        "notes": "Light sensitivity. Resting in quiet area."
+        "news2_score": 0,
+        "notes": "Light sensitivity."
     }
 ]
