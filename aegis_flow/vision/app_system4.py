@@ -8,7 +8,6 @@ from scipy.spatial.distance import cosine
 import json
 import threading
 from flask import Flask, render_template, jsonify, Response
-import time
 
 # --- 1. SETUP FLASK SERVER ---
 app = Flask(__name__)
@@ -18,7 +17,7 @@ live_patient_data = {}
 output_map_frame = None 
 data_lock = threading.Lock() 
 
-# Load dummy records
+# Load records
 with open('aegis_flow/vision/patients.json', 'r') as f:
     epr_database = json.load(f)
 
@@ -57,6 +56,7 @@ flask_thread.start()
 # --- 2. SETUP AI ---
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 print(f"--- SYSTEM ONLINE ---")
+print(f"AI Processor: {device}")
 print(f"Mobile Dashboard: http://localhost:5001")
 
 feature_extractor = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
@@ -88,70 +88,88 @@ dst_points = np.float32([
 ])
 matrix = cv2.getPerspectiveTransform(src_points, dst_points)
 
+# --- NEW: SPLIT-BODY LOGIC ---
+# Stores { global_id : {'top': vector, 'bot': vector} }
 patient_fingerprints = {} 
 next_global_id = 1
-MATCH_THRESHOLD = 0.20 
+MATCH_THRESHOLD = 0.20
 active_track_map = {} 
 
-def get_embedding(image_crop):
-    img_tensor = preprocess(image_crop).unsqueeze(0).to(device)
-    with torch.no_grad(): features = feature_extractor(img_tensor)
-    return features.cpu().numpy().flatten()
+def get_split_embedding(image_crop):
+    """
+    Splits image into Top (Torso) and Bottom (Legs) and gets 2 vectors.
+    """
+    h, w, _ = image_crop.shape
+    if h < 10 or w < 10: return None, None # Safety check for tiny crops
+    
+    # Crop top 50% and bottom 50%
+    top_half = image_crop[0:int(h/2), :]
+    bottom_half = image_crop[int(h/2):h, :]
+    
+    # Preprocess
+    top_tensor = preprocess(top_half).unsqueeze(0).to(device)
+    bot_tensor = preprocess(bottom_half).unsqueeze(0).to(device)
+    
+    # Extract Features
+    with torch.no_grad():
+        top_feat = feature_extractor(top_tensor).cpu().numpy().flatten()
+        bot_feat = feature_extractor(bot_tensor).cpu().numpy().flatten()
+        
+    return top_feat, bot_feat
 
 def identify_patient(image_crop):
     global next_global_id
-    curr_vector = get_embedding(image_crop)
-    best_id, lowest_dist = None, 1.0 
     
-    for pid, saved_vector in patient_fingerprints.items():
-        dist = cosine(curr_vector, saved_vector)
-        if dist < lowest_dist: lowest_dist = dist; best_id = pid
+    curr_top, curr_bot = get_split_embedding(image_crop)
+    if curr_top is None: return None, False, None # Skip bad crops
+    
+    best_id = None
+    lowest_dist = 1.0 
+    
+    for pid, saved_data in patient_fingerprints.items():
+        saved_top = saved_data['top']
+        saved_bot = saved_data['bot']
+        
+        dist_top = cosine(curr_top, saved_top)
+        dist_bot = cosine(curr_bot, saved_bot)
+        
+        # WEIGHTING: 30% Top, 70% Bottom (Trust legs more)
+        weighted_dist = (0.3 * dist_top) + (0.7 * dist_bot)
+        
+        if weighted_dist < lowest_dist:
+            lowest_dist = weighted_dist
+            best_id = pid
+            
+    # Return structure: ID, Is_Match, New_Vectors_Dict
+    vectors = {'top': curr_top, 'bot': curr_bot}
             
     if lowest_dist < MATCH_THRESHOLD:
-        return best_id, True, curr_vector
+        return best_id, True, vectors
     else:
-        new_id = next_global_id; next_global_id += 1
-        return new_id, False, curr_vector
+        new_id = next_global_id
+        next_global_id += 1
+        return new_id, False, vectors
 
 def get_checkup_info(news2_score, patient_id):
-    """
-    Calculates the frequency and a dummy 'time remaining' based on NEWS2.
-    """
-    # 1. Determine Frequency Rule (in minutes)
-    if news2_score >= 7:
-        freq_mins = 30         # High Risk: 30 mins
-        risk_label = "HIGH RISK"
-    elif news2_score >= 5:
-        freq_mins = 60         # Medium Risk: Hourly
-        risk_label = "MED RISK"
-    elif news2_score >= 1:
-        freq_mins = 240        # Low-Med Risk: 4 hours
-        risk_label = "LOW-MED"
-    else:
-        freq_mins = 720        # Low Risk: 12 hours
-        risk_label = "LOW RISK"
-
-    # 2. Simulate "Time Remaining" for the demo
-    # We use the patient_id to make a fixed "random" offset so it looks consistent
-    # e.g., Patient 1 always has 15 mins left, Patient 2 has 45 mins left.
-    offset = (patient_id * 17) % freq_mins 
-    mins_remaining = freq_mins - offset
-    
-    return risk_label, mins_remaining
+    if news2_score >= 7: freq, label = 30, "HIGH RISK"
+    elif news2_score >= 5: freq, label = 60, "MED RISK"
+    elif news2_score >= 1: freq, label = 240, "LOW-MED"
+    else: freq, label = 720, "LOW RISK"
+    offset = (patient_id * 17) % freq 
+    return label, freq - offset
 
 # --- 3. MAIN LOOP ---
-# UPDATE: Change 'demo_footage.mp4' back to 0 if using webcam
+# Use 0 for Webcam, or 'demo_footage.mp4' for video file
 cap = cv2.VideoCapture(0) 
 
 while True:
     ret, frame = cap.read()
-    
     if not ret: 
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # Loop video
         continue
 
-    # frame = cv2.resize(frame, (1920, 1080)) # Enable if video is 4K
-    frame = cv2.flip(frame, 1) # Mirroring
+    # frame = cv2.resize(frame, (1920, 1080)) # Enable for 4K video
+    frame = cv2.flip(frame, 1) 
     
     current_map = map_img.copy()
     cv2.rectangle(current_map, (0,0), (MAP_WIDTH, MAP_HEIGHT), (255, 255, 255), -1)
@@ -172,56 +190,58 @@ while True:
             
             if face_crop.size > 0:
                 if track_id not in active_track_map:
-                    global_id, _, vector = identify_patient(face_crop)
-                    active_track_map[track_id] = global_id
-                    patient_fingerprints[global_id] = vector
+                    global_id, _, vectors = identify_patient(face_crop)
+                    if global_id:
+                        active_track_map[track_id] = global_id
+                        patient_fingerprints[global_id] = vectors
                 
-                gid = active_track_map[track_id]
-                new_vec = get_embedding(face_crop)
-                patient_fingerprints[gid] = (0.9 * patient_fingerprints[gid]) + (0.1 * new_vec)
+                # ADAPTIVE UPDATE (Update Top and Bottom separately)
+                if track_id in active_track_map:
+                    gid = active_track_map[track_id]
+                    curr_top, curr_bot = get_split_embedding(face_crop)
+                    
+                    if curr_top is not None:
+                        # Blend old and new (90% old, 10% new)
+                        old_top = patient_fingerprints[gid]['top']
+                        old_bot = patient_fingerprints[gid]['bot']
+                        
+                        patient_fingerprints[gid]['top'] = (0.9 * old_top) + (0.1 * curr_top)
+                        patient_fingerprints[gid]['bot'] = (0.9 * old_bot) + (0.1 * curr_bot)
 
+            # Map & Display Logic
             gid = active_track_map.get(track_id, 1)
-            
-            # Get EPR Data
             epr_index = (gid - 1) % len(epr_database)
             epr_record = epr_database[epr_index]
             
-            # --- CALCULATE NEWS2 DATA ---
             risk_label, mins_left = get_checkup_info(epr_record['news2_score'], gid)
-            # ----------------------------
 
-            # Map Math
             foot_x, foot_y = int((x1 + x2) / 2), int(y2)
             p = np.array([[[foot_x, foot_y]]], dtype=np.float32)
             transformed = cv2.perspectiveTransform(p, matrix)
             map_x, map_y = int(transformed[0][0][0]), int(transformed[0][0][1])
 
-            # Color Logic
             triage_text = epr_record['triage_score'].split()[0]
             dot_color = (255, 0, 0)
             if triage_text == "Red": dot_color = (0, 0, 255)
             elif triage_text == "Yellow": dot_color = (0, 255, 255)
             elif triage_text == "Green": dot_color = (0, 200, 0)
 
-            # Package Data
             current_frame_data[gid] = {
                 "name": epr_record['name'],
                 "epr_id": epr_record['epr_id'],
                 "condition": epr_record['condition'],
                 "triage_score": epr_record['triage_score'],
-                "news2_score": epr_record['news2_score'], # Needed for sorting
-                "risk_label": risk_label,                 # Needed for timer
-                "mins_remaining": mins_left,              # Needed for timer
+                "news2_score": epr_record['news2_score'],
+                "risk_label": risk_label,
+                "mins_remaining": mins_left,
                 "map_x": map_x,
                 "map_y": map_y
             }
 
-            # Draw on Camera
             cv2.rectangle(frame, (x1, y1), (x2, y2), dot_color, 2)
             cv2.putText(frame, f"{epr_record['name']} ({risk_label})", (x1, y1 - 10), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, dot_color, 2)
             
-            # Draw on Map
             if 0 <= map_x < MAP_WIDTH and 0 <= map_y < MAP_HEIGHT:
                 cv2.circle(current_map, (map_x, map_y), 15, dot_color, -1)
                 cv2.putText(current_map, f"{epr_record['name']}", (map_x+20, map_y), 
